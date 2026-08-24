@@ -25,6 +25,8 @@ public class TaskEntity {
     @Lob
     private String error;
     private int attempts;
+    private String pendingApprovalTool;
+    private String approvedTools;
 
     protected TaskEntity() {
     }
@@ -45,9 +47,21 @@ public class TaskEntity {
     public String getReport() { return report; }
     public String getError() { return error; }
     public int getAttempts() { return attempts; }
+    public String getPendingApprovalTool() { return pendingApprovalTool; }
+    public java.util.Set<String> getApprovedTools() {
+        if (approvedTools == null || approvedTools.isBlank()) return java.util.Set.of();
+        return java.util.Set.of(approvedTools.split(","));
+    }
     public void setStatus(TaskStatus status) { this.status = status; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public void setReport(String report) { this.report = report; }
     public void setError(String error) { this.error = error; }
     public void setAttempts(int attempts) { this.attempts = attempts; }
+    public void setPendingApprovalTool(String pendingApprovalTool) { this.pendingApprovalTool = pendingApprovalTool; }
+    public void approveTool(String tool) {
+        java.util.Set<String> values = new java.util.HashSet<>(getApprovedTools());
+        values.add(tool);
+        this.approvedTools = String.join(",", values);
+        this.pendingApprovalTool = null;
+    }
 }

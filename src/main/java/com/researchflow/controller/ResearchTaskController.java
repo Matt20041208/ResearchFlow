@@ -1,6 +1,7 @@
 package com.researchflow.controller;
 
 import com.researchflow.model.ResearchRequest;
+import com.researchflow.model.ApprovalRequest;
 import com.researchflow.model.TaskSnapshot;
 import com.researchflow.model.TaskSummary;
 import com.researchflow.service.ResearchTaskService;
@@ -55,6 +56,13 @@ public class ResearchTaskController {
     @PostMapping("/{taskId}/retry")
     public ResponseEntity<Void> retry(@PathVariable String taskId) {
         taskService.retry(taskId);
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/{taskId}/approve")
+    public ResponseEntity<Void> approve(@PathVariable String taskId,
+                                        @Valid @RequestBody ApprovalRequest request) {
+        taskService.approve(taskId, request.tool());
         return ResponseEntity.accepted().build();
     }
 }

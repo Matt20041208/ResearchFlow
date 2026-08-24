@@ -5,5 +5,6 @@ import java.util.List;
 
 public record TaskSnapshot(String taskId, String question, TaskStatus status, Instant createdAt,
                            Instant updatedAt, String report, String error, int attempts,
+                           String pendingApprovalTool,
                            List<AgentEvent> events) {
 }

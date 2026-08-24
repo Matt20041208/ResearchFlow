@@ -25,4 +25,10 @@ public class ApiExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of(
                 "timestamp", Instant.now(), "status", 400, "message", message));
     }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, Object>> handleConflict(IllegalStateException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "timestamp", Instant.now(), "status", 409, "message", exception.getMessage()));
+    }
 }

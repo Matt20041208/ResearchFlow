@@ -1,12 +1,7 @@
 package com.researchflow.service;
 
-import com.researchflow.agent.ComparisonAgent;
-import com.researchflow.agent.EvidenceAgent;
-import com.researchflow.agent.PlannerAgent;
-import com.researchflow.agent.ResearchAgent;
-import com.researchflow.agent.ResearchPlan;
-import com.researchflow.agent.SourceSearchAgent;
-import com.researchflow.agent.WriterAgent;
+import com.researchflow.agent.runtime.MultiAgentOrchestrator;
+import com.researchflow.tool.ToolRegistry;
 import com.researchflow.model.AgentEvent;
 import com.researchflow.model.ResearchRequest;
 import com.researchflow.model.TaskSnapshot;
@@ -16,7 +11,6 @@ import com.researchflow.persistence.TaskEntity;
 import com.researchflow.persistence.TaskEventEntity;
 import com.researchflow.persistence.TaskEventRepository;
 import com.researchflow.persistence.TaskRepository;
-import com.researchflow.workflow.WorkflowLoader;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +25,6 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -40,12 +33,7 @@ import java.util.concurrent.Future;
 
 @Service
 public class ResearchTaskService {
-    private final PlannerAgent plannerAgent;
-    private final SourceSearchAgent sourceSearchAgent;
-    private final EvidenceAgent evidenceAgent;
-    private final ComparisonAgent comparisonAgent;
-    private final WriterAgent writerAgent;
-    private final WorkflowLoader workflowLoader;
+    private final MultiAgentOrchestrator orchestrator;
     private final int maxAttempts;
     private final TaskRepository taskRepository;
     private final TaskEventRepository eventRepository;
@@ -54,19 +42,11 @@ public class ResearchTaskService {
     private final ConcurrentHashMap<String, Future<?>> runningTasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> emitters = new ConcurrentHashMap<>();
 
-    public ResearchTaskService(PlannerAgent plannerAgent, SourceSearchAgent sourceSearchAgent,
-                               EvidenceAgent evidenceAgent, ComparisonAgent comparisonAgent,
-                               WriterAgent writerAgent, TaskRepository taskRepository,
+    public ResearchTaskService(MultiAgentOrchestrator orchestrator, TaskRepository taskRepository,
                                TaskEventRepository eventRepository,
-                               WorkflowLoader workflowLoader,
                                @Value("${research-flow.executor-threads:8}") int executorThreads,
                                @Value("${research-flow.max-attempts:3}") int maxAttempts) {
-        this.plannerAgent = plannerAgent;
-        this.sourceSearchAgent = sourceSearchAgent;
-        this.evidenceAgent = evidenceAgent;
-        this.comparisonAgent = comparisonAgent;
-        this.writerAgent = writerAgent;
-        this.workflowLoader = workflowLoader;
+        this.orchestrator = orchestrator;
         this.maxAttempts = Math.max(1, maxAttempts);
         this.taskRepository = taskRepository;
         this.eventRepository = eventRepository;
@@ -129,7 +109,8 @@ public class ResearchTaskService {
     @Transactional
     public void cancel(String taskId) {
         TaskState state = find(taskId);
-        if (state.entity.getStatus() != TaskStatus.CREATED && state.entity.getStatus() != TaskStatus.RUNNING) return;
+        if (state.entity.getStatus() != TaskStatus.CREATED && state.entity.getStatus() != TaskStatus.RUNNING
+                && state.entity.getStatus() != TaskStatus.WAITING_APPROVAL) return;
         state.entity.setStatus(TaskStatus.CANCELLED);
         state.entity.setUpdatedAt(Instant.now());
         taskRepository.save(state.entity);
@@ -159,6 +140,27 @@ public class ResearchTaskService {
         });
     }
 
+    @Transactional
+    public void approve(String taskId, String tool) {
+        TaskState state = find(taskId);
+        if (state.entity.getStatus() != TaskStatus.WAITING_APPROVAL) {
+            throw new IllegalStateException("任务当前不在等待审批状态");
+        }
+        if (!tool.equals(state.entity.getPendingApprovalTool())) {
+            throw new IllegalArgumentException("待审批工具不匹配: " + tool);
+        }
+        state.entity.approveTool(tool);
+        state.entity.setStatus(TaskStatus.CREATED);
+        state.entity.setError(null);
+        state.entity.setUpdatedAt(Instant.now());
+        taskRepository.save(state.entity);
+        publish(state, "approval", "APPROVED", "已批准工具: " + tool);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() { submit(state); }
+        });
+    }
+
     private void submit(TaskState state) {
         Future<?> future = executor.submit(() -> run(state));
         runningTasks.put(state.entity.getId(), future);
@@ -180,19 +182,23 @@ public class ResearchTaskService {
     private void run(TaskState state) {
         try {
             if (!markRunning(state)) return;
-            if (!workflowLoader.executionOrder().equals(List.of("planner", "search", "evidence", "comparison", "writer"))) {
-                throw new IllegalStateException("当前 Agent 输入输出适配器不支持该工作流");
-            }
-            ResearchPlan plan = runAgent(state, plannerAgent, state.entity.getQuestion());
-            List<com.researchflow.model.SourceDocument> sources = runAgent(state, sourceSearchAgent, plan);
-            String evidence = runEvidenceInParallel(state, sources);
-            String comparison = runAgent(state, comparisonAgent, new ComparisonAgent.Input(plan, evidence));
-            state.entity.setReport(runAgent(state, writerAgent,
-                    new WriterAgent.Input(state.entity.getQuestion(), comparison, sources)));
+            state.entity.setReport(orchestrator.execute(state.entity.getQuestion(),
+                    event -> publish(state, event.agent(), event.status(), event.message()),
+                    () -> state.entity.getStatus() == TaskStatus.CANCELLED,
+                    state.entity.getApprovedTools()));
             state.entity.setStatus(TaskStatus.COMPLETED);
             state.entity.setUpdatedAt(Instant.now());
             taskRepository.save(state.entity);
             publish(state, "system", "COMPLETED", "研究报告已生成");
+        } catch (MultiAgentOrchestrator.TaskCancelledException exception) {
+            return;
+        } catch (ToolRegistry.ApprovalRequiredException exception) {
+            state.entity.setStatus(TaskStatus.WAITING_APPROVAL);
+            state.entity.setPendingApprovalTool(exception.tool());
+            state.entity.setError(exception.getMessage());
+            state.entity.setUpdatedAt(Instant.now());
+            taskRepository.save(state.entity);
+            publish(state, "approval", "WAITING_APPROVAL", exception.getMessage());
         } catch (Exception exception) {
             if (state.entity.getStatus() == TaskStatus.CANCELLED || Thread.currentThread().isInterrupted()) return;
             state.entity.setStatus(TaskStatus.FAILED);
@@ -217,31 +223,15 @@ public class ResearchTaskService {
         return true;
     }
 
-    private <I, O> O runAgent(TaskState state, ResearchAgent<I, O> agent, I input) {
-        publish(state, agent.name(), "RUNNING", "开始执行");
-        O output = agent.execute(input);
-        publish(state, agent.name(), "COMPLETED", "执行完成");
-        return output;
-    }
-
-    private String runEvidenceInParallel(TaskState state, List<com.researchflow.model.SourceDocument> sources) {
-        publish(state, evidenceAgent.name(), "RUNNING", "并行提取 " + sources.size() + " 个来源");
-        List<CompletableFuture<String>> futures = sources.stream()
-                .map(source -> CompletableFuture.supplyAsync(() -> evidenceAgent.extract(source), executor))
-                .toList();
-        String evidence = futures.stream().map(CompletableFuture::join)
-                .reduce((left, right) -> left + "\n" + right).orElse("未提取到证据");
-        publish(state, evidenceAgent.name(), "COMPLETED", "证据提取完成");
-        return evidence;
-    }
-
     private void publish(TaskState state, String agent, String status, String message) {
         Instant occurredAt = Instant.now();
         AgentEvent event = new AgentEvent(state.entity.getId(), agent, status, message, occurredAt);
-        state.events.add(event);
-        state.entity.setUpdatedAt(occurredAt);
-        taskRepository.save(state.entity);
-        eventRepository.save(new TaskEventEntity(state.entity.getId(), agent, status, message, occurredAt));
+        synchronized (state) {
+            state.events.add(event);
+            state.entity.setUpdatedAt(occurredAt);
+            taskRepository.save(state.entity);
+            eventRepository.save(new TaskEventEntity(state.entity.getId(), agent, status, message, occurredAt));
+        }
         emitters.getOrDefault(state.entity.getId(), new CopyOnWriteArrayList<>()).forEach(emitter -> send(emitter, event));
     }
 
@@ -271,7 +261,8 @@ public class ResearchTaskService {
 
         private TaskSnapshot snapshot() {
             return new TaskSnapshot(entity.getId(), entity.getQuestion(), entity.getStatus(), entity.getCreatedAt(),
-                    entity.getUpdatedAt(), entity.getReport(), entity.getError(), entity.getAttempts(), List.copyOf(events));
+                    entity.getUpdatedAt(), entity.getReport(), entity.getError(), entity.getAttempts(),
+                    entity.getPendingApprovalTool(), List.copyOf(events));
         }
     }
 }

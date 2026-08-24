@@ -2,10 +2,15 @@
 
 ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台后端。
 
-## 当前链路
+## 核心链路
 
 ```text
-研究问题 -> Planner -> Source Search -> Evidence -> Comparison -> Writer -> Markdown 报告
+用户目标
+  -> System Agent 生成结构化 DAG
+  -> Agent Registry 按名称和能力路由
+  -> Scheduler 并行执行同层 Sub-Agent
+  -> Tool Registry 校验工具权限
+  -> Writer Agent 汇总 Markdown 报告
 ```
 
 `SourceSearchAgent` 默认调用 Crossref 检索论文；网络不可用时自动降级到离线来源。配置 `OPENAI_API_KEY` 后，`WriterAgent` 会调用 OpenAI 兼容接口生成报告，否则使用确定性模板降级。任务和 Agent 事件持久化到本地 H2 文件数据库。
@@ -44,33 +49,50 @@ curl -X POST http://localhost:8080/api/research/tasks \
 
 重试任务：`POST /api/research/tasks/{taskId}/retry`
 
+批准待审批工具：
+
+```bash
+curl -X POST http://localhost:8080/api/research/tasks/{taskId}/approve \
+  -H 'Content-Type: application/json' \
+  -d '{"tool":"report-publish"}'
+```
+
+预览 System Agent 计划：`POST /api/system-agent/plan`
+
+查看 Sub-Agent 能力：`GET /api/system-agent/agents`
+
+查看工具和风险等级：`GET /api/system-agent/tools`
+
 ## 当前设计
 
-- System Agent 负责任务生命周期和 Agent 顺序控制。
+- System Agent 优先调用模型生成结构化 DAG，输出非法或未配置模型时使用确定性规划器。
+- Agent Registry 保存每个 Sub-Agent 的能力与所需工具，编排器不再硬编码调用链。
+- DAG Scheduler 自动识别依赖已满足的节点，并行执行同一层节点。
 - Search Agent 获取外部论文来源。
-- Evidence Agent 对来源并行提取证据。
+- Evidence、Comparison、Risk、Writer Agent 分别负责证据提取、比较、风险分析和报告汇总。
 - Comparison Agent 汇总比较结果。
 - Writer Agent 优先调用模型，失败时自动降级。
+- Tool Registry 将工具划分为只读、外部调用和高风险；高风险工具必须人工审批。
 - H2 文件数据库保存任务、状态、报告和事件，应用重启后仍可查询。
-- `workflow.json` 定义 Agent DAG，启动时执行拓扑排序并检测循环依赖。
-- 支持任务取消、失败重试、最大尝试次数和中断任务恢复。
+- 支持 SSE 执行追踪、取消、失败重试、最大尝试次数、中断恢复和审批恢复。
 
 ## 目录结构
 
 ```text
 src/main/java/com/researchflow
 ├── agent          # 领域 Agent
+│   └── runtime    # System Agent、注册中心、上下文和 DAG 调度器
 ├── controller     # REST/SSE 接口
 ├── llm            # OpenAI 兼容客户端
 ├── model          # API 模型
 ├── persistence     # JPA 持久化模型
 ├── service        # System Agent 与任务生命周期
-└── workflow       # DAG 定义与拓扑校验
+└── tool           # 工具注册、风险等级和审批策略
 ```
 
 ## 下一步
 
-- 接入 Semantic Scholar / Crossref 论文检索。
-- 接入 Spring AI，并增加结构化输出校验。
-- 将固定链路升级为可配置 DAG 工作流。
-- 增加 PostgreSQL、向量检索、任务持久化和人工确认节点。
+- 接入 Semantic Scholar 作为第二论文来源并做结果去重。
+- 用 PostgreSQL + pgvector 替换本地 H2，增加知识库检索。
+- 将发布工具连接到真实文档平台，并保留审批审计。
+- 增加前端 DAG 可视化和 Agent 运行详情页面。
