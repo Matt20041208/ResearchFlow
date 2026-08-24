@@ -1,10 +1,23 @@
 spring:
   application:
     name: research-flow
+  datasource:
+    url: jdbc:h2:file:./data/researchflow;AUTO_SERVER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
 server:
   port: 8080
 research-flow:
   executor-threads: 8
+  max-attempts: 3
   search:
     crossref-url: https://api.crossref.org/works
     rows: 5

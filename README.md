@@ -1,6 +1,6 @@
 # ResearchFlow
 
-ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台 MVP。
+ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台后端。
 
 ## 当前链路
 
@@ -8,7 +8,7 @@ ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台 MVP。
 研究问题 -> Planner -> Source Search -> Evidence -> Comparison -> Writer -> Markdown 报告
 ```
 
-`SourceSearchAgent` 默认调用 Crossref 检索论文；网络不可用时自动降级到离线来源。配置 `OPENAI_API_KEY` 后，`WriterAgent` 会调用 OpenAI 兼容接口生成报告，否则使用确定性模板降级。
+`SourceSearchAgent` 默认调用 Crossref 检索论文；网络不可用时自动降级到离线来源。配置 `OPENAI_API_KEY` 后，`WriterAgent` 会调用 OpenAI 兼容接口生成报告，否则使用确定性模板降级。任务和 Agent 事件持久化到本地 H2 文件数据库。
 
 ## 启动
 
@@ -36,7 +36,13 @@ curl -X POST http://localhost:8080/api/research/tasks \
 
 查询任务：`GET /api/research/tasks/{taskId}`
 
+任务列表：`GET /api/research/tasks`
+
 订阅实时 Agent 事件：`GET /api/research/tasks/{taskId}/events`
+
+取消任务：`POST /api/research/tasks/{taskId}/cancel`
+
+重试任务：`POST /api/research/tasks/{taskId}/retry`
 
 ## 当前设计
 
@@ -45,6 +51,22 @@ curl -X POST http://localhost:8080/api/research/tasks \
 - Evidence Agent 对来源并行提取证据。
 - Comparison Agent 汇总比较结果。
 - Writer Agent 优先调用模型，失败时自动降级。
+- H2 文件数据库保存任务、状态、报告和事件，应用重启后仍可查询。
+- `workflow.json` 定义 Agent DAG，启动时执行拓扑排序并检测循环依赖。
+- 支持任务取消、失败重试、最大尝试次数和中断任务恢复。
+
+## 目录结构
+
+```text
+src/main/java/com/researchflow
+├── agent          # 领域 Agent
+├── controller     # REST/SSE 接口
+├── llm            # OpenAI 兼容客户端
+├── model          # API 模型
+├── persistence     # JPA 持久化模型
+├── service        # System Agent 与任务生命周期
+└── workflow       # DAG 定义与拓扑校验
+```
 
 ## 下一步
 

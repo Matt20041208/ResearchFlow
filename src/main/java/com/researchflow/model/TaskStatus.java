@@ -1,5 +1,5 @@
 package com.researchflow.model;
 
 public enum TaskStatus {
-    CREATED, RUNNING, COMPLETED, FAILED
+    CREATED, RUNNING, COMPLETED, FAILED, CANCELLED
 }
