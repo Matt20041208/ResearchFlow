@@ -13,6 +13,20 @@ spring:
   h2:
     console:
       enabled: true
+  ai:
+    chat:
+      client:
+        enabled: false
+    model:
+      chat: ${SPRING_AI_MODEL_CHAT:none}
+      embedding: none
+    openai:
+      api-key: ${OPENAI_API_KEY:disabled}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o-mini}
+          temperature: 0.2
 server:
   port: 8080
 research-flow:
@@ -21,8 +35,3 @@ research-flow:
   search:
     crossref-url: https://api.crossref.org/works
     rows: 5
-  llm:
-    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
-    api-key: ${OPENAI_API_KEY:}
-    model: ${OPENAI_MODEL:gpt-4o-mini}
-    timeout-seconds: 45

@@ -13,7 +13,7 @@ ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台后端。
   -> Writer Agent 汇总 Markdown 报告
 ```
 
-`SourceSearchAgent` 默认调用 Crossref 检索论文；网络不可用时自动降级到离线来源。配置 `OPENAI_API_KEY` 后，`WriterAgent` 会调用 OpenAI 兼容接口生成报告，否则使用确定性模板降级。任务和 Agent 事件持久化到本地 H2 文件数据库。
+`SourceSearchAgent` 默认调用 Crossref 检索论文；网络不可用时自动降级到离线来源。模型访问由 Spring AI `ChatClient` 统一管理，System Agent 使用结构化输出生成 `SystemPlan`，Writer Agent 通过同一个模型客户端生成报告。任务和 Agent 事件持久化到本地 H2 文件数据库。
 
 ## 启动
 
@@ -23,13 +23,17 @@ ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台后端。
 mvn spring-boot:run
 ```
 
-可选模型配置：
+模型默认关闭，因此没有 API Key 也能运行完整的确定性降级链路。启用 OpenAI 或 OpenAI 兼容服务：
 
 ```bash
 export OPENAI_API_KEY=your-key
-export OPENAI_BASE_URL=https://api.openai.com/v1
+export SPRING_AI_MODEL_CHAT=openai
+export OPENAI_BASE_URL=https://api.openai.com
 export OPENAI_MODEL=gpt-4o-mini
+mvn spring-boot:run
 ```
+
+DeepSeek 等 OpenAI 兼容服务只需替换 `OPENAI_BASE_URL` 和 `OPENAI_MODEL`。
 
 ## API
 
@@ -65,13 +69,14 @@ curl -X POST http://localhost:8080/api/research/tasks/{taskId}/approve \
 
 ## 当前设计
 
-- System Agent 优先调用模型生成结构化 DAG，输出非法或未配置模型时使用确定性规划器。
+- Spring Boot 3.5 + Spring AI 1.0.3 提供模型自动配置、`ChatClient` 和结构化实体映射。
+- System Agent 通过 `ChatClient.call().entity(SystemPlan.class)` 生成结构化 DAG，输出非法或未配置模型时使用确定性规划器。
 - Agent Registry 保存每个 Sub-Agent 的能力与所需工具，编排器不再硬编码调用链。
 - DAG Scheduler 自动识别依赖已满足的节点，并行执行同一层节点。
 - Search Agent 获取外部论文来源。
 - Evidence、Comparison、Risk、Writer Agent 分别负责证据提取、比较、风险分析和报告汇总。
 - Comparison Agent 汇总比较结果。
-- Writer Agent 优先调用模型，失败时自动降级。
+- Writer Agent 通过 Spring AI 生成报告，失败时自动降级。
 - Tool Registry 将工具划分为只读、外部调用和高风险；高风险工具必须人工审批。
 - H2 文件数据库保存任务、状态、报告和事件，应用重启后仍可查询。
 - 支持 SSE 执行追踪、取消、失败重试、最大尝试次数、中断恢复和审批恢复。
@@ -83,7 +88,7 @@ src/main/java/com/researchflow
 ├── agent          # 领域 Agent
 │   └── runtime    # System Agent、注册中心、上下文和 DAG 调度器
 ├── controller     # REST/SSE 接口
-├── llm            # OpenAI 兼容客户端
+├── llm            # Spring AI ChatClient 适配层
 ├── model          # API 模型
 ├── persistence     # JPA 持久化模型
 ├── service        # System Agent 与任务生命周期

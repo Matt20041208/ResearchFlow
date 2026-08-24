@@ -1,7 +1,6 @@
 package com.researchflow.agent.runtime;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.researchflow.llm.LlmClient;
+import com.researchflow.llm.SpringAiClient;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -9,29 +8,23 @@ import java.util.List;
 
 @Component
 public class SystemAgentPlanner {
-    private final LlmClient llmClient;
-    private final ObjectMapper objectMapper;
+    private final SpringAiClient aiClient;
 
-    public SystemAgentPlanner(LlmClient llmClient, ObjectMapper objectMapper) {
-        this.llmClient = llmClient;
-        this.objectMapper = objectMapper;
+    public SystemAgentPlanner(SpringAiClient aiClient) {
+        this.aiClient = aiClient;
     }
 
     public SystemPlan plan(String question) {
-        var generated = llmClient.complete(
+        var generated = aiClient.entity(
                 "你是 System Agent。请只输出 JSON，不要 Markdown。可用 agent: planner-agent, "
                         + "source-search-agent, evidence-agent, comparison-agent, risk-agent, writer-agent, publisher-agent。"
                         + "输出格式: {\"goal\":\"...\",\"nodes\":[{\"id\":\"...\",\"agent\":\"...\","
                         + "\"dependsOn\":[\"...\"]}]}。基础节点 ID 必须依次使用 plan、sources、evidence、comparison、writer。"
                         + "风险节点 ID 使用 risk，发布节点 ID 使用 publication。",
-                question);
+                question, SystemPlan.class);
         if (generated.isPresent()) {
-            try {
-                SystemPlan plan = objectMapper.readValue(cleanJson(generated.get()), SystemPlan.class);
-                if (isCompatible(plan)) return plan;
-            } catch (Exception ignored) {
-                // Invalid model plans fall back to the deterministic planner.
-            }
+            SystemPlan plan = generated.get();
+            if (isCompatible(plan)) return plan;
         }
         return fallbackPlan(question);
     }
@@ -52,16 +45,6 @@ public class SystemAgentPlanner {
             nodes.add(new PlannedNode("publication", "publisher-agent", List.of("writer")));
         }
         return new SystemPlan(question, nodes);
-    }
-
-    private String cleanJson(String text) {
-        String value = text.trim();
-        if (value.startsWith("```")) {
-            int firstLine = value.indexOf('\n');
-            int closing = value.lastIndexOf("```");
-            if (firstLine >= 0 && closing > firstLine) value = value.substring(firstLine + 1, closing).trim();
-        }
-        return value;
     }
 
     private boolean isCompatible(SystemPlan plan) {

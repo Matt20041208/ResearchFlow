@@ -1,16 +1,23 @@
 package com.researchflow.agent.runtime;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.researchflow.llm.LlmClient;
+import com.researchflow.llm.SpringAiClient;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class SystemAgentPlannerTest {
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final SystemAgentPlanner planner = new SystemAgentPlanner(
-            new LlmClient(objectMapper, "https://example.org/v1", "", "test", 1), objectMapper);
+    private final SpringAiClient aiClient = mock(SpringAiClient.class);
+    private final SystemAgentPlanner planner = new SystemAgentPlanner(aiClient);
+
+    SystemAgentPlannerTest() {
+        when(aiClient.entity(anyString(), anyString(), eq(SystemPlan.class)))
+                .thenReturn(java.util.Optional.empty());
+    }
 
     @Test
     void createsTheStandardResearchPlan() {
@@ -34,5 +41,19 @@ class SystemAgentPlannerTest {
         SystemPlan plan = planner.plan("研究多 Agent 系统并发布报告");
 
         assertTrue(plan.nodes().stream().anyMatch(node -> node.agent().equals("publisher-agent")));
+    }
+
+    @Test
+    void acceptsACompatibleStructuredPlanFromSpringAi() {
+        SystemPlan generated = new SystemPlan("goal", java.util.List.of(
+                new PlannedNode("plan", "planner-agent", java.util.List.of()),
+                new PlannedNode("sources", "source-search-agent", java.util.List.of("plan")),
+                new PlannedNode("evidence", "evidence-agent", java.util.List.of("sources")),
+                new PlannedNode("comparison", "comparison-agent", java.util.List.of("plan", "evidence")),
+                new PlannedNode("writer", "writer-agent", java.util.List.of("comparison"))));
+        when(aiClient.entity(anyString(), anyString(), eq(SystemPlan.class)))
+                .thenReturn(java.util.Optional.of(generated));
+
+        assertEquals(generated, planner.plan("任意研究目标"));
     }
 }

@@ -1,18 +1,21 @@
 package com.researchflow.agent;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.researchflow.llm.LlmClient;
+import com.researchflow.llm.SpringAiClient;
 import com.researchflow.model.SourceDocument;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class WriterAgentTest {
     @Test
     void fallsBackToDeterministicReportWithoutApiKey() {
-        LlmClient client = new LlmClient(new ObjectMapper(), "https://example.org/v1", "", "test", 1);
+        SpringAiClient client = mock(SpringAiClient.class);
+        when(client.complete(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(java.util.Optional.empty());
         WriterAgent agent = new WriterAgent(client);
 
         String report = agent.execute(new WriterAgent.Input(
