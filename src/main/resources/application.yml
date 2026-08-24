@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: research-flow
+server:
+  port: 8080
+research-flow:
+  executor-threads: 8
