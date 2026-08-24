@@ -20,10 +20,12 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class ResearchTaskService {
@@ -72,6 +74,11 @@ public class ResearchTaskService {
         return emitter;
     }
 
+    @PreDestroy
+    public void shutdown() {
+        executor.shutdown();
+    }
+
     private TaskState find(String taskId) {
         TaskState state = tasks.get(taskId);
         if (state == null) throw new IllegalArgumentException("研究任务不存在: " + taskId);
@@ -84,7 +91,7 @@ public class ResearchTaskService {
             publish(state, "system", "RUNNING", "System Agent 开始拆解研究任务");
             ResearchPlan plan = runAgent(state, plannerAgent, state.question);
             List<com.researchflow.model.SourceDocument> sources = runAgent(state, sourceSearchAgent, plan);
-            String evidence = runAgent(state, evidenceAgent, sources);
+            String evidence = runEvidenceInParallel(state, sources);
             String comparison = runAgent(state, comparisonAgent, new ComparisonAgent.Input(plan, evidence));
             state.report = runAgent(state, writerAgent, new WriterAgent.Input(state.question, comparison, sources));
             state.status = TaskStatus.COMPLETED;
@@ -93,6 +100,17 @@ public class ResearchTaskService {
             state.status = TaskStatus.FAILED;
             publish(state, "system", "FAILED", "任务失败: " + exception.getMessage());
         }
+    }
+
+    private String runEvidenceInParallel(TaskState state, List<com.researchflow.model.SourceDocument> sources) {
+        publish(state, evidenceAgent.name(), "RUNNING", "并行提取 " + sources.size() + " 个来源");
+        List<CompletableFuture<String>> futures = sources.stream()
+                .map(source -> CompletableFuture.supplyAsync(() -> evidenceAgent.extract(source), executor))
+                .toList();
+        String evidence = futures.stream().map(CompletableFuture::join)
+                .reduce((left, right) -> left + "\n" + right).orElse("未提取到证据");
+        publish(state, evidenceAgent.name(), "COMPLETED", "证据提取完成");
+        return evidence;
     }
 
     private <I, O> O runAgent(TaskState state, ResearchAgent<I, O> agent, I input) {

@@ -8,7 +8,7 @@ ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台 MVP。
 研究问题 -> Planner -> Source Search -> Evidence -> Comparison -> Writer -> Markdown 报告
 ```
 
-当前 Agent 使用演示数据，后续替换 `SourceSearchAgent` 为论文检索适配器，并在 Agent 实现中接入真实模型。
+`SourceSearchAgent` 默认调用 Crossref 检索论文；网络不可用时自动降级到离线来源。配置 `OPENAI_API_KEY` 后，`WriterAgent` 会调用 OpenAI 兼容接口生成报告，否则使用确定性模板降级。
 
 ## 启动
 
@@ -16,6 +16,14 @@ ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台 MVP。
 
 ```bash
 mvn spring-boot:run
+```
+
+可选模型配置：
+
+```bash
+export OPENAI_API_KEY=your-key
+export OPENAI_BASE_URL=https://api.openai.com/v1
+export OPENAI_MODEL=gpt-4o-mini
 ```
 
 ## API
@@ -29,6 +37,14 @@ curl -X POST http://localhost:8080/api/research/tasks \
 查询任务：`GET /api/research/tasks/{taskId}`
 
 订阅实时 Agent 事件：`GET /api/research/tasks/{taskId}/events`
+
+## 当前设计
+
+- System Agent 负责任务生命周期和 Agent 顺序控制。
+- Search Agent 获取外部论文来源。
+- Evidence Agent 对来源并行提取证据。
+- Comparison Agent 汇总比较结果。
+- Writer Agent 优先调用模型，失败时自动降级。
 
 ## 下一步
 

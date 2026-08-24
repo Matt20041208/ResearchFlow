@@ -9,8 +9,12 @@ import java.util.List;
 public class EvidenceAgent implements ResearchAgent<List<SourceDocument>, String> {
     public String name() { return "evidence-agent"; }
 
+    public String extract(SourceDocument source) {
+        return source.title() + "：" + source.summary();
+    }
+
     public String execute(List<SourceDocument> sources) {
-        return sources.stream().map(source -> source.title() + "：" + source.summary())
+        return sources.stream().map(this::extract)
                 .reduce((left, right) -> left + "\n" + right).orElse("未提取到证据");
     }
 }
