@@ -26,6 +26,8 @@ public class TaskEntity {
     @Lob
     private String report;
     @Lob
+    private String planJson;
+    @Lob
     private String error;
     private int attempts;
     private String pendingApprovalTool;
@@ -54,6 +56,7 @@ public class TaskEntity {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public String getReport() { return report; }
+    public String getPlanJson() { return planJson; }
     public String getError() { return error; }
     public int getAttempts() { return attempts; }
     public String getPendingApprovalTool() { return pendingApprovalTool; }
@@ -64,6 +67,7 @@ public class TaskEntity {
     public void setStatus(TaskStatus status) { this.status = status; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public void setReport(String report) { this.report = report; }
+    public void setPlanJson(String planJson) { this.planJson = planJson; }
     public void setError(String error) { this.error = error; }
     public void setAttempts(int attempts) { this.attempts = attempts; }
     public void setPendingApprovalTool(String pendingApprovalTool) { this.pendingApprovalTool = pendingApprovalTool; }

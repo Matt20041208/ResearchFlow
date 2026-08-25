@@ -34,7 +34,9 @@ public class MultiAgentOrchestrator {
 
     public OrchestrationResult execute(String question, String workspaceId,
                                        Consumer<AgentExecutionEvent> eventSink,
-                                       BooleanSupplier cancellationRequested, Set<String> approvedTools) {
+                                       BooleanSupplier cancellationRequested, Set<String> approvedTools,
+                                       TraceCollector trace) {
+        TraceCollector collector = trace == null ? TraceCollector.NOOP : trace;
         SystemPlan plan = planner.plan(question);
         validate(plan);
         AgentContext context = new AgentContext(question, workspaceId);
@@ -57,11 +59,21 @@ public class MultiAgentOrchestrator {
                 if (cancellationRequested.getAsBoolean()) throw new TaskCancelledException();
                 SubAgent agent = registry.get(node.agent());
                 toolRegistry.authorize(agent, approvedTools);
+                long startedAt = System.currentTimeMillis();
+                collector.nodeStarted(node, agent.name(), inputSummary(context, node));
                 eventSink.accept(new AgentExecutionEvent(agent.name(), "RUNNING", "开始执行，依赖已满足"));
-                Object result = agent.execute(context);
-                validateOutput(node, result);
-                context.put(node.id(), result);
-                eventSink.accept(new AgentExecutionEvent(agent.name(), "COMPLETED", "执行完成"));
+                try {
+                    Object result = agent.execute(context);
+                    validateOutput(node, result);
+                    context.put(node.id(), result);
+                    collector.nodeCompleted(node, agent.name(), outputSummary(result),
+                            System.currentTimeMillis() - startedAt);
+                    eventSink.accept(new AgentExecutionEvent(agent.name(), "COMPLETED", "执行完成"));
+                } catch (RuntimeException exception) {
+                    collector.nodeFailed(node, agent.name(), exception.getMessage(),
+                            System.currentTimeMillis() - startedAt);
+                    throw exception;
+                }
             }, executor)).toList();
             for (CompletableFuture<Void> future : futures) {
                 try {
@@ -74,7 +86,34 @@ public class MultiAgentOrchestrator {
             ready.forEach(node -> completed.add(node.id()));
         }
         return new OrchestrationResult(context.get("writer", String.class),
-                context.getList("sources", com.researchflow.model.SourceDocument.class));
+                context.getList("sources", com.researchflow.model.SourceDocument.class), plan);
+    }
+
+    private String inputSummary(AgentContext context, PlannedNode node) {
+        if (node.dependsOn().isEmpty()) return summarize(context.question());
+        StringBuilder summary = new StringBuilder();
+        for (String dependency : node.dependsOn()) {
+            if (summary.length() > 0) summary.append(' ');
+            summary.append(dependency).append('=').append(summarize(context.get(dependency)));
+        }
+        return truncate(summary.toString(), 900);
+    }
+
+    private String outputSummary(Object result) {
+        if (result instanceof List<?> list) {
+            return truncate("List(size=" + list.size() + ") " + list.stream()
+                    .map(this::summarize).limit(3).toList(), 900);
+        }
+        return truncate(summarize(result), 900);
+    }
+
+    private String summarize(Object value) {
+        if (value == null) return "null";
+        return String.valueOf(value).replace('\n', ' ').replaceAll("\\s+", " ");
+    }
+
+    private String truncate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
     }
 
     private void validateOutput(PlannedNode node, Object result) {

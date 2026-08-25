@@ -1,21 +1,28 @@
 package com.researchflow.service;
 
 import com.researchflow.agent.runtime.MultiAgentOrchestrator;
+import com.researchflow.agent.runtime.SystemPlan;
+import com.researchflow.agent.runtime.TraceCollector;
 import com.researchflow.tool.ToolRegistry;
 import com.researchflow.model.AgentEvent;
 import com.researchflow.model.ResearchRequest;
 import com.researchflow.model.TaskSnapshot;
 import com.researchflow.model.TaskStatus;
 import com.researchflow.model.TaskSummary;
+import com.researchflow.model.TraceNodeView;
+import com.researchflow.model.TraceView;
 import com.researchflow.persistence.TaskEntity;
 import com.researchflow.persistence.TaskEventEntity;
 import com.researchflow.persistence.TaskEventRepository;
 import com.researchflow.persistence.TaskCitationEntity;
 import com.researchflow.persistence.TaskCitationRepository;
+import com.researchflow.persistence.TaskNodeExecutionEntity;
+import com.researchflow.persistence.TaskNodeExecutionRepository;
 import com.researchflow.persistence.TaskRepository;
 import com.researchflow.billing.UsageService;
 import com.researchflow.billing.UsageType;
 import com.researchflow.collaboration.CollaborationService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +52,8 @@ public class ResearchTaskService {
     private final TaskCitationRepository citationRepository;
     private final UsageService usageService;
     private final CollaborationService collaborationService;
+    private final TaskNodeExecutionRepository nodeExecutionRepository;
+    private final ObjectMapper objectMapper;
     private final ExecutorService executor;
     private final ConcurrentHashMap<String, TaskState> tasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Future<?>> runningTasks = new ConcurrentHashMap<>();
@@ -52,7 +61,9 @@ public class ResearchTaskService {
 
     public ResearchTaskService(MultiAgentOrchestrator orchestrator, TaskRepository taskRepository,
                                TaskEventRepository eventRepository, TaskCitationRepository citationRepository,
+                               TaskNodeExecutionRepository nodeExecutionRepository,
                                UsageService usageService, CollaborationService collaborationService,
+                               ObjectMapper objectMapper,
                                @Value("${research-flow.executor-threads:8}") int executorThreads,
                                @Value("${research-flow.max-attempts:3}") int maxAttempts) {
         this.orchestrator = orchestrator;
@@ -60,8 +71,10 @@ public class ResearchTaskService {
         this.taskRepository = taskRepository;
         this.eventRepository = eventRepository;
         this.citationRepository = citationRepository;
+        this.nodeExecutionRepository = nodeExecutionRepository;
         this.usageService = usageService;
         this.collaborationService = collaborationService;
+        this.objectMapper = objectMapper;
         this.executor = Executors.newFixedThreadPool(executorThreads);
     }
 
@@ -117,6 +130,25 @@ public class ResearchTaskService {
 
     @Transactional(readOnly = true)
     public String workspaceId(String taskId) { return find(taskId).entity.getWorkspaceId(); }
+
+    @Transactional(readOnly = true)
+    public TraceView trace(String taskId) {
+        TaskEntity entity = find(taskId).entity;
+        SystemPlan plan = null;
+        if (entity.getPlanJson() != null && !entity.getPlanJson().isBlank()) {
+            try {
+                plan = objectMapper.readValue(entity.getPlanJson(), SystemPlan.class);
+            } catch (Exception ignored) {
+                // Corrupt plan JSON is tolerated; node records remain the source of truth.
+            }
+        }
+        List<TraceNodeView> nodes = nodeExecutionRepository.findByTaskIdOrderByStartedAtAsc(taskId).stream()
+                .map(node -> new TraceNodeView(node.getNodeId(), node.getAgent(), node.getStatus(),
+                        node.getInputSummary(), node.getOutputSummary(), node.getErrorSummary(),
+                        node.getDurationMs(), node.getStartedAt()))
+                .toList();
+        return new TraceView(taskId, plan, nodes);
+    }
 
     @Transactional(readOnly = true)
     public List<com.researchflow.model.Citation> citations(String taskId) {
@@ -214,11 +246,30 @@ public class ResearchTaskService {
     private void run(TaskState state) {
         try {
             if (!markRunning(state)) return;
+            ConcurrentHashMap<String, String> nodeInputs = new ConcurrentHashMap<>();
+            TraceCollector collector = new TraceCollector() {
+                public void nodeStarted(com.researchflow.agent.runtime.PlannedNode node, String agentName, String inputSummary) {
+                    nodeInputs.put(node.id(), inputSummary);
+                }
+                public void nodeCompleted(com.researchflow.agent.runtime.PlannedNode node, String agentName,
+                                          String outputSummary, long durationMs) {
+                    nodeExecutionRepository.save(new TaskNodeExecutionEntity(state.entity.getId(), node.id(),
+                            agentName, "COMPLETED", nodeInputs.get(node.id()), outputSummary,
+                            null, durationMs, Instant.now()));
+                }
+                public void nodeFailed(com.researchflow.agent.runtime.PlannedNode node, String agentName,
+                                       String error, long durationMs) {
+                    nodeExecutionRepository.save(new TaskNodeExecutionEntity(state.entity.getId(), node.id(),
+                            agentName, "FAILED", nodeInputs.get(node.id()), null,
+                            error, durationMs, Instant.now()));
+                }
+            };
             var result = orchestrator.execute(state.entity.getQuestion(), state.entity.getWorkspaceId(),
                     event -> publish(state, event.agent(), event.status(), event.message()),
                     () -> state.entity.getStatus() == TaskStatus.CANCELLED,
-                    state.entity.getApprovedTools());
+                    state.entity.getApprovedTools(), collector);
             state.entity.setReport(result.report());
+            state.entity.setPlanJson(objectMapper.writeValueAsString(result.plan()));
             collaborationService.saveVersion(state.entity.getId(), result.report(), state.entity.getCreatedBy());
             long estimatedTokens = Math.max(1, (state.entity.getQuestion().length() + result.report().length()) / 4L);
             usageService.record(state.entity.getWorkspaceId(), state.entity.getCreatedBy(), UsageType.TOKEN_USED,

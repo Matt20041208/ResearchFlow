@@ -93,3 +93,40 @@ export interface Comment {
   content: string
   createdAt: string
 }
+
+export interface TraceNode {
+  nodeId: string
+  agent: string
+  status: string
+  inputSummary?: string
+  outputSummary?: string
+  errorSummary?: string
+  durationMs: number
+  startedAt: string
+}
+
+export interface SystemPlan {
+  goal: string
+  nodes: { id: string; agent: string; dependsOn: string[] }[]
+}
+
+export interface TraceView {
+  taskId: string
+  plan?: SystemPlan
+  nodes: TraceNode[]
+}
+
+export type ScenarioStatus = 'SUGGESTED' | 'APPROVED' | 'DISMISSED'
+
+export interface Scenario {
+  id: number
+  taskId: string
+  title: string
+  nodeCombination: string
+  trigger: string
+  injectedData: string
+  expectation: string
+  risk: string
+  status: ScenarioStatus
+  createdAt: string
+}

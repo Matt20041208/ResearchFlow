@@ -71,6 +71,13 @@ public class ResearchTaskController {
         return taskService.citations(taskId);
     }
 
+    @GetMapping("/{taskId}/trace")
+    public com.researchflow.model.TraceView trace(@PathVariable String taskId,
+                                                  @RequestHeader("X-User-Id") String userId) {
+        requireTask(taskId, userId, WorkspaceRole.VIEWER);
+        return taskService.trace(taskId);
+    }
+
     @GetMapping("/{taskId}/export")
     public ResponseEntity<byte[]> export(@PathVariable String taskId,
                                          @RequestHeader("X-User-Id") String userId,

@@ -17,6 +17,14 @@ ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台
 - 套餐配额：Free/Team/Enterprise 报告、文档和订阅限制。
 - 用量计量：报告、文档、导出、订阅运行、估算 Token 与成本统计。当前成本按每千 Token `$0.001` 估算，后续替换为模型供应商账单元数据。
 
+## 第三阶段能力：链路可观测与 AI 场景推演
+
+- 结构化执行链路：每次任务持久化 System Agent DAG 与每个节点的输入摘要、输出摘要、耗时和状态。
+- 链路 API：`GET /api/research/tasks/{taskId}/trace` 返回完整 DAG 和节点执行记录。
+- AI 场景推演：System Agent 读取真实链路，系统性组合节点异常，生成人工容易遗漏的刁钻测试场景。
+- 场景资产：场景保存为 SUGGESTED/APPROVED/DISMISSED 状态，可审阅、采纳并沉淀为回归资产。
+- 推演示例：模型能从真实链路中发现"上游 64 秒空档""合并节点无相关性过滤""异步分支时序错位"等组合风险。
+
 ## 核心链路
 
 ```text
@@ -148,6 +156,14 @@ curl -X POST http://localhost:8080/api/knowledge/documents \
 - 添加评论：`POST /api/research/tasks/{taskId}/comments`
 - 评论列表：`GET /api/research/tasks/{taskId}/comments`
 - 用量统计：`GET /api/billing/workspaces/{workspaceId}/usage`
+
+### 链路与 AI 场景推演
+
+- 结构化链路：`GET /api/research/tasks/{taskId}/trace`
+- 生成场景：`POST /api/research/tasks/{taskId}/scenarios/generate`
+- 场景列表：`GET /api/research/tasks/{taskId}/scenarios`
+- 场景审阅：`PUT /api/research/tasks/{taskId}/scenarios/{scenarioId}/status?status=APPROVED`
+- 删除场景：`DELETE /api/research/tasks/{taskId}/scenarios/{scenarioId}`
 
 ### 主题订阅
 
