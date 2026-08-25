@@ -130,3 +130,29 @@ export interface Scenario {
   status: ScenarioStatus
   createdAt: string
 }
+
+export interface InjectionRule {
+  nodeId: string
+  type: 'DELAY' | 'ERROR' | 'EMPTY_RESULT'
+  delayMs: number
+  message?: string
+}
+
+export type ValidationVerdict = 'NEEDS_REVIEW' | 'VERIFIED' | 'DEFECT_FOUND' | 'INVALID'
+
+export interface ValidationRun {
+  id: string
+  scenarioId: number
+  taskId: string
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+  verdict: ValidationVerdict
+  rules: InjectionRule[]
+  expectation: string
+  actualTraceJson?: string
+  outputSummary?: string
+  error?: string
+  durationMs: number
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+}

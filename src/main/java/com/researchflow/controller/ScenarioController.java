@@ -4,6 +4,9 @@ import com.researchflow.scenario.ScenarioService;
 import com.researchflow.scenario.ScenarioStatus;
 import com.researchflow.scenario.ScenarioView;
 import com.researchflow.service.ResearchTaskService;
+import com.researchflow.validation.ScenarioValidationService;
+import com.researchflow.validation.ValidationRunView;
+import com.researchflow.validation.ValidationVerdict;
 import com.researchflow.workspace.WorkspaceRole;
 import com.researchflow.workspace.WorkspaceService;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,12 +27,14 @@ public class ScenarioController {
     private final ScenarioService scenarioService;
     private final ResearchTaskService taskService;
     private final WorkspaceService workspaceService;
+    private final ScenarioValidationService validationService;
 
     public ScenarioController(ScenarioService scenarioService, ResearchTaskService taskService,
-                              WorkspaceService workspaceService) {
+                              WorkspaceService workspaceService, ScenarioValidationService validationService) {
         this.scenarioService = scenarioService;
         this.taskService = taskService;
         this.workspaceService = workspaceService;
+        this.validationService = validationService;
     }
 
     @PostMapping("/generate")
@@ -59,6 +64,29 @@ public class ScenarioController {
                        @RequestHeader("X-User-Id") String userId) {
         require(taskId, userId, WorkspaceRole.EDITOR);
         scenarioService.delete(taskId, scenarioId);
+    }
+
+    @PostMapping("/{scenarioId}/validations")
+    public ValidationRunView validate(@PathVariable String taskId, @PathVariable Long scenarioId,
+                                      @RequestHeader("X-User-Id") String userId) {
+        require(taskId, userId, WorkspaceRole.EDITOR);
+        return validationService.start(taskId, scenarioId, userId);
+    }
+
+    @GetMapping("/{scenarioId}/validations")
+    public List<ValidationRunView> validations(@PathVariable String taskId, @PathVariable Long scenarioId,
+                                               @RequestHeader("X-User-Id") String userId) {
+        require(taskId, userId, WorkspaceRole.VIEWER);
+        return validationService.list(taskId, scenarioId);
+    }
+
+    @PutMapping("/{scenarioId}/validations/{runId}/verdict")
+    public ValidationRunView verdict(@PathVariable String taskId, @PathVariable Long scenarioId,
+                                     @PathVariable String runId,
+                                     @RequestHeader("X-User-Id") String userId,
+                                     @RequestParam ValidationVerdict verdict) {
+        require(taskId, userId, WorkspaceRole.EDITOR);
+        return validationService.review(taskId, scenarioId, runId, verdict);
     }
 
     private String require(String taskId, String userId, WorkspaceRole role) {

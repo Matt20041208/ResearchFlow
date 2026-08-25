@@ -23,6 +23,8 @@ ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台
 - 链路 API：`GET /api/research/tasks/{taskId}/trace` 返回完整 DAG 和节点执行记录。
 - AI 场景推演：System Agent 读取真实链路，系统性组合节点异常，生成人工容易遗漏的刁钻测试场景。
 - 场景资产：场景保存为 SUGGESTED/APPROVED/DISMISSED 状态，可审阅、采纳并沉淀为回归资产。
+- 受控注入验证：已采纳场景可转换为 DELAY、ERROR、EMPTY_RESULT 规则并异步重跑原始 DAG，不修改业务代码。
+- 开发者结论：验证完成后可标记 VERIFIED、DEFECT_FOUND 或 INVALID，形成可复用质量资产。
 - 推演示例：模型能从真实链路中发现"上游 64 秒空档""合并节点无相关性过滤""异步分支时序错位"等组合风险。
 
 ## 核心链路
@@ -164,6 +166,9 @@ curl -X POST http://localhost:8080/api/knowledge/documents \
 - 场景列表：`GET /api/research/tasks/{taskId}/scenarios`
 - 场景审阅：`PUT /api/research/tasks/{taskId}/scenarios/{scenarioId}/status?status=APPROVED`
 - 删除场景：`DELETE /api/research/tasks/{taskId}/scenarios/{scenarioId}`
+- 执行验证：`POST /api/research/tasks/{taskId}/scenarios/{scenarioId}/validations`
+- 验证列表：`GET /api/research/tasks/{taskId}/scenarios/{scenarioId}/validations`
+- 验证结论：`PUT /api/research/tasks/{taskId}/scenarios/{scenarioId}/validations/{runId}/verdict?verdict=DEFECT_FOUND`
 
 ### 主题订阅
 

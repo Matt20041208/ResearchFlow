@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Download, ExternalLink, GitBranch, MessageSquare, Quote, ScrollText, Send, Sparkles, Split, Trash2, XCircle } from 'lucide-react'
+import { Bug, CheckCircle2, CircleDashed, Download, ExternalLink, FlaskConical, GitBranch, MessageSquare, Quote, ScrollText, Send, Sparkles, Split, Trash2, XCircle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { api, download } from '../api'
 import { EmptyState, formatDate, PageHeader, StatusChip } from '../components'
 import { useSession } from '../session'
-import type { Citation, Comment, ReportVersion, Scenario, TaskSnapshot, TaskSummary, TraceView } from '../types'
+import type { Citation, Comment, ReportVersion, Scenario, TaskSnapshot, TaskSummary, TraceView, ValidationRun, ValidationVerdict } from '../types'
 
 type DrawerTab = 'sources' | 'versions' | 'comments' | 'trace' | 'scenarios'
 
@@ -18,6 +18,7 @@ export default function ReportsPage() {
   const [comments, setComments] = useState<Comment[]>([])
   const [trace, setTrace] = useState<TraceView>()
   const [scenarios, setScenarios] = useState<Scenario[]>([])
+  const [validations, setValidations] = useState<Record<number, ValidationRun[]>>({})
   const [generating, setGenerating] = useState(false)
   const [scenarioError, setScenarioError] = useState('')
   const [comment, setComment] = useState('')
@@ -43,6 +44,7 @@ export default function ReportsPage() {
     ])
     setTask(detail); setCitations(sourceList); setVersions(versionList); setComments(commentList)
     setTrace(traceData); setScenarios(scenarioList)
+    await loadValidations(scenarioList)
   }
   useEffect(() => { void loadDetail() }, [selectedId])
 
@@ -70,6 +72,32 @@ export default function ReportsPage() {
     await api(`/api/research/tasks/${selectedId}/scenarios/${scenario.id}`, userId, { method: 'DELETE' })
     await loadDetail()
   }
+
+  const loadValidations = async (items: Scenario[] = scenarios) => {
+    if (!selectedId) return
+    const pairs = await Promise.all(items.map(async (scenario) => [scenario.id,
+      await api<ValidationRun[]>(`/api/research/tasks/${selectedId}/scenarios/${scenario.id}/validations`, userId),
+    ] as const))
+    setValidations(Object.fromEntries(pairs))
+  }
+
+  const validateScenario = async (scenario: Scenario) => {
+    const run = await api<ValidationRun>(`/api/research/tasks/${selectedId}/scenarios/${scenario.id}/validations`, userId, { method: 'POST' })
+    setValidations((current) => ({ ...current, [scenario.id]: [run, ...(current[scenario.id] ?? [])] }))
+  }
+
+  const reviewValidation = async (scenario: Scenario, run: ValidationRun, verdict: ValidationVerdict) => {
+    await api(`/api/research/tasks/${selectedId}/scenarios/${scenario.id}/validations/${run.id}/verdict?verdict=${verdict}`, userId, { method: 'PUT' })
+    await loadValidations()
+  }
+
+  const hasActiveValidation = Object.values(validations).flat()
+    .some((run) => run.status === 'QUEUED' || run.status === 'RUNNING')
+  useEffect(() => {
+    if (!hasActiveValidation) return
+    const timer = window.setInterval(() => { void loadValidations() }, 1800)
+    return () => window.clearInterval(timer)
+  }, [hasActiveValidation, selectedId])
 
   const canEdit = workspace?.currentUserRole !== 'VIEWER'
 
@@ -110,7 +138,13 @@ export default function ReportsPage() {
               <p className="scenario-field"><em>触发</em>{scenario.trigger}</p>
               <p className="scenario-field"><em>注入</em>{scenario.injectedData}</p>
               <p className="scenario-field"><em>关注</em>{scenario.expectation}</p>
-              <div className="scenario-actions">{canEdit && <><button onClick={() => void reviewScenario(scenario, 'APPROVED')}><CheckCircle2 size={14} />采纳</button><button onClick={() => void reviewScenario(scenario, 'DISMISSED')}><XCircle size={14} />忽略</button><button className="danger" onClick={() => void deleteScenario(scenario)}><Trash2 size={14} /></button></>}<StatusChip status={scenario.status} /></div>
+              <div className="scenario-actions">{canEdit && <><button onClick={() => void reviewScenario(scenario, 'APPROVED')}><CheckCircle2 size={14} />采纳</button><button onClick={() => void reviewScenario(scenario, 'DISMISSED')}><XCircle size={14} />忽略</button>{scenario.status === 'APPROVED' && <button className="validate-button" onClick={() => void validateScenario(scenario)}><FlaskConical size={14} />执行验证</button>}<button className="danger" onClick={() => void deleteScenario(scenario)}><Trash2 size={14} /></button></>}<StatusChip status={scenario.status} /></div>
+              {(validations[scenario.id] ?? []).map((run) => <div className="validation-run" key={run.id}>
+                <div className="validation-head">{run.status === 'RUNNING' || run.status === 'QUEUED' ? <CircleDashed className="spin" /> : run.error ? <Bug /> : <CheckCircle2 />}<strong>{run.status}</strong><span>{run.durationMs ? `${run.durationMs}ms` : '等待执行'}</span><StatusChip status={run.verdict} /></div>
+                <div className="injection-rules">{run.rules.map((rule, index) => <code key={`${rule.nodeId}-${rule.type}-${index}`}>{rule.nodeId} · {rule.type}{rule.delayMs ? ` ${rule.delayMs}ms` : ''}</code>)}</div>
+                {run.outputSummary && <p className="validation-output">{run.outputSummary}</p>}{run.error && <p className="validation-error">{run.error}</p>}
+                {canEdit && run.status === 'COMPLETED' && <div className="verdict-actions"><span>开发者结论</span><button onClick={() => void reviewValidation(scenario, run, 'VERIFIED')}>符合预期</button><button onClick={() => void reviewValidation(scenario, run, 'DEFECT_FOUND')}>发现缺陷</button><button onClick={() => void reviewValidation(scenario, run, 'INVALID')}>场景无效</button></div>}
+              </div>)}
             </article>)}</div>
             {scenarios.length === 0 && <EmptyState title="还没有场景" body="点击生成场景，让 AI 从这条链路的真实耗时、数据和依赖中推演异常组合。" />}
           </div>}

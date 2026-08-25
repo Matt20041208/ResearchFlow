@@ -1,5 +1,7 @@
 package com.researchflow.agent.runtime;
 
+import com.researchflow.injection.FaultInjectionRuntime;
+import com.researchflow.injection.InjectionRule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import com.researchflow.tool.ToolRegistry;
@@ -22,13 +24,16 @@ public class MultiAgentOrchestrator {
     private final SystemAgentPlanner planner;
     private final AgentRegistry registry;
     private final ToolRegistry toolRegistry;
+    private final FaultInjectionRuntime faultInjection;
     private final ExecutorService executor;
 
     public MultiAgentOrchestrator(SystemAgentPlanner planner, AgentRegistry registry, ToolRegistry toolRegistry,
+                                  FaultInjectionRuntime faultInjection,
                                   @Value("${research-flow.executor-threads:8}") int threads) {
         this.planner = planner;
         this.registry = registry;
         this.toolRegistry = toolRegistry;
+        this.faultInjection = faultInjection;
         this.executor = Executors.newFixedThreadPool(Math.max(2, threads));
     }
 
@@ -36,8 +41,15 @@ public class MultiAgentOrchestrator {
                                        Consumer<AgentExecutionEvent> eventSink,
                                        BooleanSupplier cancellationRequested, Set<String> approvedTools,
                                        TraceCollector trace) {
+        return executePlan(question, workspaceId, planner.plan(question), eventSink,
+                cancellationRequested, approvedTools, trace, List.of());
+    }
+
+    public OrchestrationResult executePlan(String question, String workspaceId, SystemPlan plan,
+                                           Consumer<AgentExecutionEvent> eventSink,
+                                           BooleanSupplier cancellationRequested, Set<String> approvedTools,
+                                           TraceCollector trace, List<InjectionRule> injectionRules) {
         TraceCollector collector = trace == null ? TraceCollector.NOOP : trace;
-        SystemPlan plan = planner.plan(question);
         validate(plan);
         AgentContext context = new AgentContext(question, workspaceId);
         eventSink.accept(new AgentExecutionEvent("system-agent", "PLANNED",
@@ -63,7 +75,13 @@ public class MultiAgentOrchestrator {
                 collector.nodeStarted(node, agent.name(), inputSummary(context, node));
                 eventSink.accept(new AgentExecutionEvent(agent.name(), "RUNNING", "开始执行，依赖已满足"));
                 try {
+                    if (faultInjection.hasRule(node.id(), injectionRules)) {
+                        eventSink.accept(new AgentExecutionEvent(agent.name(), "INJECTED",
+                                "正在应用受控故障注入: " + node.id()));
+                    }
+                    faultInjection.before(node.id(), injectionRules);
                     Object result = agent.execute(context);
+                    result = faultInjection.after(node.id(), result, injectionRules);
                     validateOutput(node, result);
                     context.put(node.id(), result);
                     collector.nodeCompleted(node, agent.name(), outputSummary(result),
