@@ -13,6 +13,9 @@ import com.researchflow.persistence.TaskEventRepository;
 import com.researchflow.persistence.TaskCitationEntity;
 import com.researchflow.persistence.TaskCitationRepository;
 import com.researchflow.persistence.TaskRepository;
+import com.researchflow.billing.UsageService;
+import com.researchflow.billing.UsageType;
+import com.researchflow.collaboration.CollaborationService;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +43,8 @@ public class ResearchTaskService {
     private final TaskRepository taskRepository;
     private final TaskEventRepository eventRepository;
     private final TaskCitationRepository citationRepository;
+    private final UsageService usageService;
+    private final CollaborationService collaborationService;
     private final ExecutorService executor;
     private final ConcurrentHashMap<String, TaskState> tasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Future<?>> runningTasks = new ConcurrentHashMap<>();
@@ -47,6 +52,7 @@ public class ResearchTaskService {
 
     public ResearchTaskService(MultiAgentOrchestrator orchestrator, TaskRepository taskRepository,
                                TaskEventRepository eventRepository, TaskCitationRepository citationRepository,
+                               UsageService usageService, CollaborationService collaborationService,
                                @Value("${research-flow.executor-threads:8}") int executorThreads,
                                @Value("${research-flow.max-attempts:3}") int maxAttempts) {
         this.orchestrator = orchestrator;
@@ -54,6 +60,8 @@ public class ResearchTaskService {
         this.taskRepository = taskRepository;
         this.eventRepository = eventRepository;
         this.citationRepository = citationRepository;
+        this.usageService = usageService;
+        this.collaborationService = collaborationService;
         this.executor = Executors.newFixedThreadPool(executorThreads);
     }
 
@@ -71,12 +79,20 @@ public class ResearchTaskService {
     }
 
     @Transactional
-    public String create(ResearchRequest request) {
+    public String create(ResearchRequest request, String userId) {
+        return create(request, userId, "MANUAL");
+    }
+
+    @Transactional
+    public String create(ResearchRequest request, String userId, String triggerType) {
+        usageService.requireReportCapacity(request.normalizedWorkspaceId());
         String taskId = UUID.randomUUID().toString();
-        TaskState state = new TaskState(new TaskEntity(taskId, request.question(), request.normalizedWorkspaceId()));
+        TaskState state = new TaskState(new TaskEntity(taskId, request.question(), request.normalizedWorkspaceId(),
+                userId, triggerType));
         tasks.put(taskId, state);
         taskRepository.save(state.entity);
         publish(state, "system", "CREATED", "研究任务已创建");
+        usageService.record(request.normalizedWorkspaceId(), userId, UsageType.REPORT_CREATED, taskId);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -92,13 +108,15 @@ public class ResearchTaskService {
     }
 
     @Transactional(readOnly = true)
-    public List<TaskSummary> list() {
-        return taskRepository.findAll().stream()
-                .sorted((left, right) -> right.getUpdatedAt().compareTo(left.getUpdatedAt()))
+    public List<TaskSummary> list(String workspaceId) {
+        return taskRepository.findByWorkspaceIdOrderByUpdatedAtDesc(workspaceId).stream()
                 .map(task -> new TaskSummary(task.getId(), task.getQuestion(), task.getStatus(),
                         task.getCreatedAt(), task.getUpdatedAt(), task.getAttempts()))
                 .toList();
     }
+
+    @Transactional(readOnly = true)
+    public String workspaceId(String taskId) { return find(taskId).entity.getWorkspaceId(); }
 
     @Transactional(readOnly = true)
     public List<com.researchflow.model.Citation> citations(String taskId) {
@@ -201,6 +219,10 @@ public class ResearchTaskService {
                     () -> state.entity.getStatus() == TaskStatus.CANCELLED,
                     state.entity.getApprovedTools());
             state.entity.setReport(result.report());
+            collaborationService.saveVersion(state.entity.getId(), result.report(), state.entity.getCreatedBy());
+            long estimatedTokens = Math.max(1, (state.entity.getQuestion().length() + result.report().length()) / 4L);
+            usageService.record(state.entity.getWorkspaceId(), state.entity.getCreatedBy(), UsageType.TOKEN_USED,
+                    estimatedTokens, state.entity.getId());
             citationRepository.deleteByTaskId(state.entity.getId());
             for (int index = 0; index < result.sources().size(); index++) {
                 var source = result.sources().get(index);

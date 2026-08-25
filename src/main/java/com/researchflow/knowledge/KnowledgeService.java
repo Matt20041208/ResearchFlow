@@ -40,6 +40,12 @@ public class KnowledgeService {
     }
 
     @Transactional(readOnly = true)
+    public String workspaceId(String id) {
+        return repository.findById(id).map(KnowledgeDocumentEntity::getWorkspaceId)
+                .orElseThrow(() -> new IllegalArgumentException("知识文档不存在: " + id));
+    }
+
+    @Transactional(readOnly = true)
     public List<SourceDocument> search(String workspaceId, String query, int limit) {
         Set<String> terms = terms(query);
         return repository.findByWorkspaceIdOrderByCreatedAtDesc(normalize(workspaceId)).stream()

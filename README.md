@@ -9,6 +9,14 @@ ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台
 - 引用溯源：保存来源编号、类型、链接、原文摘录和置信度。
 - 多格式交付：报告可导出 Markdown、Word 和 PDF。
 
+## 第二阶段商业能力
+
+- 团队空间：Workspace、Owner/Editor/Viewer 角色和数据访问控制。
+- 报告协作：不可变版本历史、成员评论和作者追踪。
+- 情报订阅：周期主题、自动触发多 Agent 报告、手动立即运行和启停控制。
+- 套餐配额：Free/Team/Enterprise 报告、文档和订阅限制。
+- 用量计量：报告、文档、导出、订阅运行、估算 Token 与成本统计。当前成本按每千 Token `$0.001` 估算，后续替换为模型供应商账单元数据。
+
 ## 核心链路
 
 ```text
@@ -24,10 +32,24 @@ ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台
 
 ## 启动
 
-要求 JDK 17 和 Maven 3.9+：
+要求 JDK 17 和 Node.js 18+。仓库包含 Maven Wrapper，无需预装 Maven。
+
+一键启动前后端：
 
 ```bash
-mvn spring-boot:run
+./dev.sh
+```
+
+访问 `http://localhost:5173`。首次进入输入一个用户 ID，然后创建 Workspace。
+
+也可以分别启动：
+
+```bash
+./mvnw spring-boot:run
+
+cd frontend
+npm install
+npm run dev
 ```
 
 模型默认关闭，因此没有 API Key 也能运行完整的确定性降级链路。启用 OpenAI 或 OpenAI 兼容服务：
@@ -37,22 +59,34 @@ export OPENAI_API_KEY=your-key
 export SPRING_AI_MODEL_CHAT=openai
 export OPENAI_BASE_URL=https://api.openai.com
 export OPENAI_MODEL=gpt-4o-mini
-mvn spring-boot:run
+./dev.sh
 ```
 
 DeepSeek 等 OpenAI 兼容服务只需替换 `OPENAI_BASE_URL` 和 `OPENAI_MODEL`。
 
 ## API
 
+商业 API 使用 `X-User-Id` 标识当前用户。该请求头是本地 MVP 的认证占位，生产环境应替换为 JWT、OIDC 或企业 SSO。
+
+先创建团队空间：
+
+```bash
+curl -X POST http://localhost:8080/api/workspaces \
+  -H 'X-User-Id: owner-1' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Research Team"}'
+```
+
 ```bash
 curl -X POST http://localhost:8080/api/research/tasks \
+  -H 'X-User-Id: owner-1' \
   -H 'Content-Type: application/json' \
-  -d '{"question":"大模型在金融风控中的应用有哪些？","workspaceId":"team-a"}'
+  -d '{"question":"大模型在金融风控中的应用有哪些？","workspaceId":"{workspaceId}"}'
 ```
 
 查询任务：`GET /api/research/tasks/{taskId}`
 
-任务列表：`GET /api/research/tasks`
+任务列表：`GET /api/research/tasks?workspaceId={workspaceId}`
 
 订阅实时 Agent 事件：`GET /api/research/tasks/{taskId}/events`
 
@@ -80,7 +114,8 @@ curl -X POST http://localhost:8080/api/research/tasks/{taskId}/approve \
 
 ```bash
 curl -X POST http://localhost:8080/api/knowledge/documents/upload \
-  -F 'workspaceId=team-a' \
+  -H 'X-User-Id: owner-1' \
+  -F 'workspaceId={workspaceId}' \
   -F 'title=内部风控规范' \
   -F 'file=@./risk-policy.pdf'
 ```
@@ -89,8 +124,9 @@ curl -X POST http://localhost:8080/api/knowledge/documents/upload \
 
 ```bash
 curl -X POST http://localhost:8080/api/knowledge/documents \
+  -H 'X-User-Id: owner-1' \
   -H 'Content-Type: application/json' \
-  -d '{"workspaceId":"team-a","title":"内部规范","content":"规范正文"}'
+  -d '{"workspaceId":"{workspaceId}","title":"内部规范","content":"规范正文"}'
 ```
 
 - 文档列表：`GET /api/knowledge/documents?workspaceId=team-a`
@@ -103,6 +139,31 @@ curl -X POST http://localhost:8080/api/knowledge/documents \
 - Markdown：`GET /api/research/tasks/{taskId}/export?format=markdown`
 - Word：`GET /api/research/tasks/{taskId}/export?format=docx`
 - PDF：`GET /api/research/tasks/{taskId}/export?format=pdf`
+
+### 团队协作与计费
+
+- 我的空间：`GET /api/workspaces`
+- 添加成员：`PUT /api/workspaces/{workspaceId}/members`
+- 成员列表：`GET /api/workspaces/{workspaceId}/members`
+- 修改套餐：`PUT /api/workspaces/{workspaceId}/plan?tier=TEAM`
+- 报告版本：`GET /api/research/tasks/{taskId}/versions`
+- 添加评论：`POST /api/research/tasks/{taskId}/comments`
+- 评论列表：`GET /api/research/tasks/{taskId}/comments`
+- 用量统计：`GET /api/billing/workspaces/{workspaceId}/usage`
+
+### 主题订阅
+
+```bash
+curl -X POST http://localhost:8080/api/subscriptions \
+  -H 'X-User-Id: owner-1' \
+  -H 'Content-Type: application/json' \
+  -d '{"workspaceId":"{workspaceId}","name":"AI 风险周报",\
+       "question":"跟踪大模型风险最新进展","intervalMinutes":10080}'
+```
+
+- 订阅列表：`GET /api/subscriptions?workspaceId={workspaceId}`
+- 立即执行：`POST /api/subscriptions/{id}/run`
+- 启停订阅：`PUT /api/subscriptions/{id}/enabled?value=false`
 
 ## 当前设计
 
@@ -126,9 +187,14 @@ src/main/java/com/researchflow
 ├── agent          # 领域 Agent
 │   └── runtime    # System Agent、注册中心、上下文和 DAG 调度器
 ├── controller     # REST/SSE 接口
+├── frontend       # React + TypeScript 研究指挥台
 ├── llm            # Spring AI ChatClient 适配层
 ├── knowledge      # 私有知识库解析、管理和检索
 ├── export         # Markdown、Word、PDF 导出
+├── workspace      # 团队空间、成员与 RBAC
+├── collaboration  # 报告版本和评论
+├── subscription   # 主题订阅和定时调度
+├── billing        # 套餐、配额、用量和成本
 ├── model          # API 模型
 ├── persistence     # JPA 持久化模型
 ├── service        # System Agent 与任务生命周期
@@ -140,4 +206,6 @@ src/main/java/com/researchflow
 - 接入 Semantic Scholar 作为第二论文来源并做结果去重。
 - 用 PostgreSQL + pgvector 替换本地 H2，增加知识库检索。
 - 将发布工具连接到真实文档平台，并保留审批审计。
-- 增加前端 DAG 可视化和 Agent 运行详情页面。
+- 接入 JWT/OIDC/企业 SSO，替换 `X-User-Id` 占位认证。
+- 用分布式锁保护多实例订阅调度，并接入真实支付网关。
+- 增加前端 DAG、团队协作和账单看板。

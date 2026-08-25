@@ -31,4 +31,10 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                 "timestamp", Instant.now(), "status", 409, "message", exception.getMessage()));
     }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(SecurityException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                "timestamp", Instant.now(), "status", 403, "message", exception.getMessage()));
+    }
 }

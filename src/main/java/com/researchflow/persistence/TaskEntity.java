@@ -17,6 +17,8 @@ public class TaskEntity {
     private String id;
     private String question;
     private String workspaceId;
+    private String createdBy;
+    private String triggerType;
     @Enumerated(EnumType.STRING)
     private TaskStatus status;
     private Instant createdAt;
@@ -32,10 +34,12 @@ public class TaskEntity {
     protected TaskEntity() {
     }
 
-    public TaskEntity(String id, String question, String workspaceId) {
+    public TaskEntity(String id, String question, String workspaceId, String createdBy, String triggerType) {
         this.id = id;
         this.question = question;
         this.workspaceId = workspaceId;
+        this.createdBy = createdBy;
+        this.triggerType = triggerType;
         this.status = TaskStatus.CREATED;
         this.createdAt = Instant.now();
         this.updatedAt = createdAt;
@@ -44,6 +48,8 @@ public class TaskEntity {
     public String getId() { return id; }
     public String getQuestion() { return question; }
     public String getWorkspaceId() { return workspaceId == null ? "default" : workspaceId; }
+    public String getCreatedBy() { return createdBy; }
+    public String getTriggerType() { return triggerType == null ? "MANUAL" : triggerType; }
     public TaskStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

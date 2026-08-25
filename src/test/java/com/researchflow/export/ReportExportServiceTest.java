@@ -18,7 +18,7 @@ class ReportExportServiceTest {
 
     @Test
     void exportsMarkdownDocxAndPdf() {
-        TaskEntity task = new TaskEntity("task-1", "问题", "default");
+        TaskEntity task = new TaskEntity("task-1", "问题", "default", "user-1", "MANUAL");
         task.setReport("# 中文研究报告\n\n## 结论\n证据支持该结论 [1]。");
         when(repository.findById("task-1")).thenReturn(Optional.of(task));
 

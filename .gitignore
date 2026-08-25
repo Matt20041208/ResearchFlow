@@ -4,3 +4,5 @@ target/
 .env
 *.log
 data/
+frontend/node_modules/
+frontend/dist/

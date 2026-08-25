@@ -36,6 +36,8 @@ server:
 research-flow:
   executor-threads: 8
   max-attempts: 3
+  subscription:
+    scan-interval-ms: 60000
   search:
     crossref-url: https://api.crossref.org/works
     rows: 5
