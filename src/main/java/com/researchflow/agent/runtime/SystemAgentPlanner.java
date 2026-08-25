@@ -26,7 +26,7 @@ public class SystemAgentPlanner {
                 question, SystemPlan.class);
         if (generated.isPresent()) {
             SystemPlan plan = generated.get();
-            if (isCompatible(plan)) return plan;
+            if (isCompatible(plan, question)) return plan;
         }
         return fallbackPlan(question);
     }
@@ -51,7 +51,7 @@ public class SystemAgentPlanner {
         return new SystemPlan(question, nodes);
     }
 
-    private boolean isCompatible(SystemPlan plan) {
+    private boolean isCompatible(SystemPlan plan, String question) {
         if (plan.nodes() == null || plan.nodes().isEmpty()) return false;
         java.util.Map<String, String> contracts = java.util.Map.of(
                 "plan", "planner-agent",
@@ -63,7 +63,13 @@ public class SystemAgentPlanner {
                 "writer", "writer-agent");
         java.util.Map<String, String> actual = plan.nodes().stream()
                 .collect(java.util.stream.Collectors.toMap(PlannedNode::id, PlannedNode::agent, (left, right) -> left));
-        return contracts.entrySet().stream().allMatch(entry -> entry.getValue().equals(actual.get(entry.getKey())));
+        boolean validContracts = contracts.entrySet().stream()
+                .allMatch(entry -> entry.getValue().equals(actual.get(entry.getKey())));
+        boolean hasRisk = "risk-agent".equals(actual.get("risk"));
+        boolean hasPublication = "publisher-agent".equals(actual.get("publication"));
+        return validContracts
+                && hasRisk == containsRiskIntent(question)
+                && hasPublication == containsPublishIntent(question);
     }
 
     private boolean containsRiskIntent(String question) {

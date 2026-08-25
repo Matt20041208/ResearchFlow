@@ -52,17 +52,15 @@ npm install
 npm run dev
 ```
 
-模型默认关闭，因此没有 API Key 也能运行完整的确定性降级链路。启用 OpenAI 或 OpenAI 兼容服务：
+模型默认关闭，因此没有 API Key 也能运行完整的确定性降级链路。启用 DeepSeek：
 
 ```bash
-export OPENAI_API_KEY=your-key
-export SPRING_AI_MODEL_CHAT=openai
-export OPENAI_BASE_URL=https://api.openai.com
-export OPENAI_MODEL=gpt-4o-mini
+cp .env.example .env
+# 编辑 .env，填写 OPENAI_API_KEY
 ./dev.sh
 ```
 
-DeepSeek 等 OpenAI 兼容服务只需替换 `OPENAI_BASE_URL` 和 `OPENAI_MODEL`。
+默认 DeepSeek 配置使用 `https://api.deepseek.com` 和 `deepseek-v4-pro`。可通过 `/models` 接口确认当前账号可用的准确模型 ID。`dev.sh` 会自动加载根目录 `.env`，真实密钥不会提交到 Git。
 
 ## API
 
