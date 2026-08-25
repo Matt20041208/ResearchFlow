@@ -12,11 +12,12 @@ export async function api<T>(path: string, userId: string, init: RequestInit = {
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   const response = await fetch(path, { ...init, headers })
   if (!response.ok) {
-    let message = `请求失败 (${response.status})`
+    let message = `请求失败 ${path} (${response.status})`
     try {
       const body = await response.json()
-      if (body.message) message = body.message
+      if (body.message) message = `${path}: ${body.message}`
     } catch { /* response is not JSON */ }
+    console.error('[ResearchFlow]', response.status, path, message)
     throw new ApiError(response.status, message)
   }
   if (response.status === 204) return undefined as T
