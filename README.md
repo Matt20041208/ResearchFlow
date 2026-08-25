@@ -1,6 +1,13 @@
 # ResearchFlow
 
-ResearchFlow 是一个面向科研研究任务的多 Agent 编排平台后端。
+ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台后端。
+
+## 第一阶段商业能力
+
+- 私有知识库：按 workspace 隔离，支持 TXT、Markdown、DOCX、PDF 上传与文本检索。
+- 混合来源研究：Crossref 外部论文和私有知识库并行检索，自动合并去重。
+- 引用溯源：保存来源编号、类型、链接、原文摘录和置信度。
+- 多格式交付：报告可导出 Markdown、Word 和 PDF。
 
 ## 核心链路
 
@@ -40,7 +47,7 @@ DeepSeek 等 OpenAI 兼容服务只需替换 `OPENAI_BASE_URL` 和 `OPENAI_MODEL
 ```bash
 curl -X POST http://localhost:8080/api/research/tasks \
   -H 'Content-Type: application/json' \
-  -d '{"question":"大模型在金融风控中的应用有哪些？"}'
+  -d '{"question":"大模型在金融风控中的应用有哪些？","workspaceId":"team-a"}'
 ```
 
 查询任务：`GET /api/research/tasks/{taskId}`
@@ -67,12 +74,43 @@ curl -X POST http://localhost:8080/api/research/tasks/{taskId}/approve \
 
 查看工具和风险等级：`GET /api/system-agent/tools`
 
+### 私有知识库
+
+上传文件：
+
+```bash
+curl -X POST http://localhost:8080/api/knowledge/documents/upload \
+  -F 'workspaceId=team-a' \
+  -F 'title=内部风控规范' \
+  -F 'file=@./risk-policy.pdf'
+```
+
+也可以直接提交文本：
+
+```bash
+curl -X POST http://localhost:8080/api/knowledge/documents \
+  -H 'Content-Type: application/json' \
+  -d '{"workspaceId":"team-a","title":"内部规范","content":"规范正文"}'
+```
+
+- 文档列表：`GET /api/knowledge/documents?workspaceId=team-a`
+- 文档检索：`GET /api/knowledge/documents/search?workspaceId=team-a&query=风险`
+- 删除文档：`DELETE /api/knowledge/documents/{id}`
+
+### 引用与导出
+
+- 引用详情：`GET /api/research/tasks/{taskId}/citations`
+- Markdown：`GET /api/research/tasks/{taskId}/export?format=markdown`
+- Word：`GET /api/research/tasks/{taskId}/export?format=docx`
+- PDF：`GET /api/research/tasks/{taskId}/export?format=pdf`
+
 ## 当前设计
 
 - Spring Boot 3.5 + Spring AI 1.0.3 提供模型自动配置、`ChatClient` 和结构化实体映射。
 - System Agent 通过 `ChatClient.call().entity(SystemPlan.class)` 生成结构化 DAG，输出非法或未配置模型时使用确定性规划器。
 - Agent Registry 保存每个 Sub-Agent 的能力与所需工具，编排器不再硬编码调用链。
 - DAG Scheduler 自动识别依赖已满足的节点，并行执行同一层节点。
+- External Search Agent 和 Private Knowledge Agent 并行检索，Source Merge Agent 去重后统一进入证据链路。
 - Search Agent 获取外部论文来源。
 - Evidence、Comparison、Risk、Writer Agent 分别负责证据提取、比较、风险分析和报告汇总。
 - Comparison Agent 汇总比较结果。
@@ -89,6 +127,8 @@ src/main/java/com/researchflow
 │   └── runtime    # System Agent、注册中心、上下文和 DAG 调度器
 ├── controller     # REST/SSE 接口
 ├── llm            # Spring AI ChatClient 适配层
+├── knowledge      # 私有知识库解析、管理和检索
+├── export         # Markdown、Word、PDF 导出
 ├── model          # API 模型
 ├── persistence     # JPA 持久化模型
 ├── service        # System Agent 与任务生命周期

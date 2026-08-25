@@ -16,6 +16,7 @@ public class TaskEntity {
     @Id
     private String id;
     private String question;
+    private String workspaceId;
     @Enumerated(EnumType.STRING)
     private TaskStatus status;
     private Instant createdAt;
@@ -31,9 +32,10 @@ public class TaskEntity {
     protected TaskEntity() {
     }
 
-    public TaskEntity(String id, String question) {
+    public TaskEntity(String id, String question, String workspaceId) {
         this.id = id;
         this.question = question;
+        this.workspaceId = workspaceId;
         this.status = TaskStatus.CREATED;
         this.createdAt = Instant.now();
         this.updatedAt = createdAt;
@@ -41,6 +43,7 @@ public class TaskEntity {
 
     public String getId() { return id; }
     public String getQuestion() { return question; }
+    public String getWorkspaceId() { return workspaceId == null ? "default" : workspaceId; }
     public TaskStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

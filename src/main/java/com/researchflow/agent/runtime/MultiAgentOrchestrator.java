@@ -32,11 +32,12 @@ public class MultiAgentOrchestrator {
         this.executor = Executors.newFixedThreadPool(Math.max(2, threads));
     }
 
-    public String execute(String question, Consumer<AgentExecutionEvent> eventSink,
-                          BooleanSupplier cancellationRequested, Set<String> approvedTools) {
+    public OrchestrationResult execute(String question, String workspaceId,
+                                       Consumer<AgentExecutionEvent> eventSink,
+                                       BooleanSupplier cancellationRequested, Set<String> approvedTools) {
         SystemPlan plan = planner.plan(question);
         validate(plan);
-        AgentContext context = new AgentContext(question);
+        AgentContext context = new AgentContext(question, workspaceId);
         eventSink.accept(new AgentExecutionEvent("system-agent", "PLANNED",
                 "动态规划生成 " + plan.nodes().size() + " 个 Sub-Agent 节点: "
                         + plan.nodes().stream().map(PlannedNode::id).toList()));
@@ -72,7 +73,8 @@ public class MultiAgentOrchestrator {
             }
             ready.forEach(node -> completed.add(node.id()));
         }
-        return context.get("writer", String.class);
+        return new OrchestrationResult(context.get("writer", String.class),
+                context.getList("sources", com.researchflow.model.SourceDocument.class));
     }
 
     private void validateOutput(PlannedNode node, Object result) {
@@ -80,7 +82,7 @@ public class MultiAgentOrchestrator {
         if (result instanceof String text && text.isBlank()) {
             throw new IllegalStateException(node.agent() + " 返回空文本");
         }
-        if (result instanceof List<?> list && list.isEmpty()) {
+        if (result instanceof List<?> list && list.isEmpty() && !node.id().equals("privateSources")) {
             throw new IllegalStateException(node.agent() + " 返回空列表");
         }
     }

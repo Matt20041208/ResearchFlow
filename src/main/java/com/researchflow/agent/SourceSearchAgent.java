@@ -14,7 +14,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 @Component
 public class SourceSearchAgent implements ResearchAgent<ResearchPlan, List<SourceDocument>> {
@@ -62,7 +62,8 @@ public class SourceSearchAgent implements ResearchAgent<ResearchPlan, List<Sourc
             String url = item.path("URL").asText("");
             String summary = item.path("abstract").asText("No abstract available")
                     .replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim();
-            sources.add(new SourceDocument(title, url, summary));
+            String id = item.path("DOI").asText(UUID.randomUUID().toString());
+            sources.add(new SourceDocument(id, "CROSSREF", title, url, summary, summary, 0.75));
         }
         return sources;
     }

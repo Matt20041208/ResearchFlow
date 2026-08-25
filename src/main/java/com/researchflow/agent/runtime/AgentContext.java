@@ -6,14 +6,18 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class AgentContext {
     private final String question;
+    private final String workspaceId;
     private final Map<String, Object> values = new ConcurrentHashMap<>();
 
-    public AgentContext(String question) {
+    public AgentContext(String question, String workspaceId) {
         this.question = question;
+        this.workspaceId = workspaceId;
         values.put("question", question);
+        values.put("workspaceId", workspaceId);
     }
 
     public String question() { return question; }
+    public String workspaceId() { return workspaceId; }
     public void put(String key, Object value) { values.put(key, value); }
     public Object get(String key) { return values.get(key); }
     public <T> T get(String key, Class<T> type) { return type.cast(values.get(key)); }

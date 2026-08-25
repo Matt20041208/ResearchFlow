@@ -10,6 +10,8 @@ import com.researchflow.model.TaskSummary;
 import com.researchflow.persistence.TaskEntity;
 import com.researchflow.persistence.TaskEventEntity;
 import com.researchflow.persistence.TaskEventRepository;
+import com.researchflow.persistence.TaskCitationEntity;
+import com.researchflow.persistence.TaskCitationRepository;
 import com.researchflow.persistence.TaskRepository;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
@@ -37,19 +39,21 @@ public class ResearchTaskService {
     private final int maxAttempts;
     private final TaskRepository taskRepository;
     private final TaskEventRepository eventRepository;
+    private final TaskCitationRepository citationRepository;
     private final ExecutorService executor;
     private final ConcurrentHashMap<String, TaskState> tasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Future<?>> runningTasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> emitters = new ConcurrentHashMap<>();
 
     public ResearchTaskService(MultiAgentOrchestrator orchestrator, TaskRepository taskRepository,
-                               TaskEventRepository eventRepository,
+                               TaskEventRepository eventRepository, TaskCitationRepository citationRepository,
                                @Value("${research-flow.executor-threads:8}") int executorThreads,
                                @Value("${research-flow.max-attempts:3}") int maxAttempts) {
         this.orchestrator = orchestrator;
         this.maxAttempts = Math.max(1, maxAttempts);
         this.taskRepository = taskRepository;
         this.eventRepository = eventRepository;
+        this.citationRepository = citationRepository;
         this.executor = Executors.newFixedThreadPool(executorThreads);
     }
 
@@ -69,7 +73,7 @@ public class ResearchTaskService {
     @Transactional
     public String create(ResearchRequest request) {
         String taskId = UUID.randomUUID().toString();
-        TaskState state = new TaskState(new TaskEntity(taskId, request.question()));
+        TaskState state = new TaskState(new TaskEntity(taskId, request.question(), request.normalizedWorkspaceId()));
         tasks.put(taskId, state);
         taskRepository.save(state.entity);
         publish(state, "system", "CREATED", "研究任务已创建");
@@ -93,6 +97,16 @@ public class ResearchTaskService {
                 .sorted((left, right) -> right.getUpdatedAt().compareTo(left.getUpdatedAt()))
                 .map(task -> new TaskSummary(task.getId(), task.getQuestion(), task.getStatus(),
                         task.getCreatedAt(), task.getUpdatedAt(), task.getAttempts()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<com.researchflow.model.Citation> citations(String taskId) {
+        find(taskId);
+        return citationRepository.findByTaskIdOrderByCitationNumberAsc(taskId).stream()
+                .map(entity -> new com.researchflow.model.Citation(entity.getCitationNumber(), entity.getSourceId(),
+                        entity.getSourceType(), entity.getTitle(), entity.getUrl(), entity.getExcerpt(),
+                        entity.getConfidence()))
                 .toList();
     }
 
@@ -182,10 +196,17 @@ public class ResearchTaskService {
     private void run(TaskState state) {
         try {
             if (!markRunning(state)) return;
-            state.entity.setReport(orchestrator.execute(state.entity.getQuestion(),
+            var result = orchestrator.execute(state.entity.getQuestion(), state.entity.getWorkspaceId(),
                     event -> publish(state, event.agent(), event.status(), event.message()),
                     () -> state.entity.getStatus() == TaskStatus.CANCELLED,
-                    state.entity.getApprovedTools()));
+                    state.entity.getApprovedTools());
+            state.entity.setReport(result.report());
+            citationRepository.deleteByTaskId(state.entity.getId());
+            for (int index = 0; index < result.sources().size(); index++) {
+                var source = result.sources().get(index);
+                citationRepository.save(new TaskCitationEntity(state.entity.getId(), index + 1, source.id(),
+                        source.sourceType(), source.title(), source.url(), source.excerpt(), source.confidence()));
+            }
             state.entity.setStatus(TaskStatus.COMPLETED);
             state.entity.setUpdatedAt(Instant.now());
             taskRepository.save(state.entity);

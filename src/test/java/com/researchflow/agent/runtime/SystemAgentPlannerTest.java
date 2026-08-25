@@ -23,8 +23,9 @@ class SystemAgentPlannerTest {
     void createsTheStandardResearchPlan() {
         SystemPlan plan = planner.plan("研究多 Agent 系统");
 
-        assertEquals(5, plan.nodes().size());
-        assertEquals("writer-agent", plan.nodes().get(4).agent());
+        assertEquals(7, plan.nodes().size());
+        assertTrue(plan.nodes().stream().anyMatch(node -> node.agent().equals("private-knowledge-agent")));
+        assertEquals("writer-agent", plan.nodes().get(6).agent());
     }
 
     @Test
@@ -47,7 +48,9 @@ class SystemAgentPlannerTest {
     void acceptsACompatibleStructuredPlanFromSpringAi() {
         SystemPlan generated = new SystemPlan("goal", java.util.List.of(
                 new PlannedNode("plan", "planner-agent", java.util.List.of()),
-                new PlannedNode("sources", "source-search-agent", java.util.List.of("plan")),
+                new PlannedNode("externalSources", "source-search-agent", java.util.List.of("plan")),
+                new PlannedNode("privateSources", "private-knowledge-agent", java.util.List.of("plan")),
+                new PlannedNode("sources", "source-merge-agent", java.util.List.of("externalSources", "privateSources")),
                 new PlannedNode("evidence", "evidence-agent", java.util.List.of("sources")),
                 new PlannedNode("comparison", "comparison-agent", java.util.List.of("plan", "evidence")),
                 new PlannedNode("writer", "writer-agent", java.util.List.of("comparison"))));

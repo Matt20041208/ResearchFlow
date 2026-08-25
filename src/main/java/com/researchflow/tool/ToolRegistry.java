@@ -11,6 +11,7 @@ import java.util.Map;
 public class ToolRegistry {
     private final Map<String, ToolDescriptor> tools = Map.of(
             "crossref-search", new ToolDescriptor("crossref-search", "检索 Crossref 论文元数据", ToolRisk.READ_ONLY),
+            "private-knowledge-search", new ToolDescriptor("private-knowledge-search", "检索当前工作区私有知识库", ToolRisk.READ_ONLY),
             "llm-completion", new ToolDescriptor("llm-completion", "调用 OpenAI 兼容模型", ToolRisk.EXTERNAL_CALL),
             "report-publish", new ToolDescriptor("report-publish", "将研究报告发布到外部目标", ToolRisk.HIGH_RISK)
     );

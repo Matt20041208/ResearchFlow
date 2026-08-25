@@ -17,10 +17,12 @@ public class SystemAgentPlanner {
     public SystemPlan plan(String question) {
         var generated = aiClient.entity(
                 "你是 System Agent。请只输出 JSON，不要 Markdown。可用 agent: planner-agent, "
-                        + "source-search-agent, evidence-agent, comparison-agent, risk-agent, writer-agent, publisher-agent。"
+                        + "source-search-agent, private-knowledge-agent, source-merge-agent, evidence-agent, "
+                        + "comparison-agent, risk-agent, writer-agent, publisher-agent。"
                         + "输出格式: {\"goal\":\"...\",\"nodes\":[{\"id\":\"...\",\"agent\":\"...\","
                         + "\"dependsOn\":[\"...\"]}]}。基础节点 ID 必须依次使用 plan、sources、evidence、comparison、writer。"
-                        + "风险节点 ID 使用 risk，发布节点 ID 使用 publication。",
+                        + "检索节点必须使用 externalSources、privateSources、sources，风险节点 ID 使用 risk，"
+                        + "发布节点 ID 使用 publication。",
                 question, SystemPlan.class);
         if (generated.isPresent()) {
             SystemPlan plan = generated.get();
@@ -32,7 +34,9 @@ public class SystemAgentPlanner {
     private SystemPlan fallbackPlan(String question) {
         List<PlannedNode> nodes = new ArrayList<>();
         nodes.add(new PlannedNode("plan", "planner-agent", List.of()));
-        nodes.add(new PlannedNode("sources", "source-search-agent", List.of("plan")));
+        nodes.add(new PlannedNode("externalSources", "source-search-agent", List.of("plan")));
+        nodes.add(new PlannedNode("privateSources", "private-knowledge-agent", List.of("plan")));
+        nodes.add(new PlannedNode("sources", "source-merge-agent", List.of("externalSources", "privateSources")));
         nodes.add(new PlannedNode("evidence", "evidence-agent", List.of("sources")));
         nodes.add(new PlannedNode("comparison", "comparison-agent", List.of("plan", "evidence")));
         if (containsRiskIntent(question)) {
@@ -51,7 +55,9 @@ public class SystemAgentPlanner {
         if (plan.nodes() == null || plan.nodes().isEmpty()) return false;
         java.util.Map<String, String> contracts = java.util.Map.of(
                 "plan", "planner-agent",
-                "sources", "source-search-agent",
+                "externalSources", "source-search-agent",
+                "privateSources", "private-knowledge-agent",
+                "sources", "source-merge-agent",
                 "evidence", "evidence-agent",
                 "comparison", "comparison-agent",
                 "writer", "writer-agent");

@@ -14,7 +14,11 @@ public class EvidenceAgent implements ResearchAgent<List<SourceDocument>, String
     }
 
     public String execute(List<SourceDocument> sources) {
-        return sources.stream().map(this::extract)
-                .reduce((left, right) -> left + "\n" + right).orElse("未提取到证据");
+        StringBuilder evidence = new StringBuilder();
+        for (int index = 0; index < sources.size(); index++) {
+            if (index > 0) evidence.append('\n');
+            evidence.append('[').append(index + 1).append("] ").append(extract(sources.get(index)));
+        }
+        return evidence.isEmpty() ? "未提取到证据" : evidence.toString();
     }
 }

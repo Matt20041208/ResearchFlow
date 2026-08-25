@@ -3,8 +3,10 @@ package com.researchflow.agent.runtime;
 import com.researchflow.agent.ComparisonAgent;
 import com.researchflow.agent.EvidenceAgent;
 import com.researchflow.agent.PlannerAgent;
+import com.researchflow.agent.PrivateKnowledgeAgent;
 import com.researchflow.agent.ResearchPlan;
 import com.researchflow.agent.SourceSearchAgent;
+import com.researchflow.agent.SourceMergeAgent;
 import com.researchflow.agent.WriterAgent;
 import com.researchflow.model.SourceDocument;
 import org.springframework.stereotype.Component;
@@ -18,7 +20,8 @@ import java.util.function.Function;
 public class AgentRegistry {
     private final Map<String, SubAgent> agents;
 
-    public AgentRegistry(PlannerAgent planner, SourceSearchAgent search, EvidenceAgent evidence,
+    public AgentRegistry(PlannerAgent planner, SourceSearchAgent search, PrivateKnowledgeAgent privateKnowledge,
+                         SourceMergeAgent sourceMerge, EvidenceAgent evidence,
                          ComparisonAgent comparison, WriterAgent writer) {
         this.agents = Map.of(
                 "planner-agent", adapter(planner.name(), Set.of("planning", "decomposition"), Set.of(),
@@ -26,6 +29,13 @@ public class AgentRegistry {
                 "source-search-agent", adapter(search.name(), Set.of("paper-search", "retrieval"),
                         Set.of("crossref-search"),
                         context -> search.execute(context.get("plan", ResearchPlan.class))),
+                "private-knowledge-agent", adapter(privateKnowledge.name(), Set.of("private-search", "retrieval"),
+                        Set.of("private-knowledge-search"),
+                        context -> privateKnowledge.execute(context.workspaceId(), context.question())),
+                "source-merge-agent", adapter(sourceMerge.name(), Set.of("source-merge", "deduplication"), Set.of(),
+                        context -> sourceMerge.execute(
+                                context.getList("externalSources", SourceDocument.class),
+                                context.getList("privateSources", SourceDocument.class))),
                 "evidence-agent", adapter(evidence.name(), Set.of("evidence", "extraction"), Set.of(),
                         context -> evidence.execute(context.getList("sources", SourceDocument.class))),
                 "comparison-agent", adapter(comparison.name(), Set.of("comparison", "analysis"), Set.of(),
