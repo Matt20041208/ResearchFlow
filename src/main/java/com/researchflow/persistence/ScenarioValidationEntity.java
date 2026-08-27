@@ -2,6 +2,7 @@ package com.researchflow.persistence;
 
 import com.researchflow.validation.ValidationRunStatus;
 import com.researchflow.validation.ValidationVerdict;
+import com.researchflow.validation.AutomaticAssessment;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -25,6 +26,12 @@ public class ScenarioValidationEntity {
     private ValidationRunStatus status;
     @Enumerated(EnumType.STRING)
     private ValidationVerdict verdict;
+    @Enumerated(EnumType.STRING)
+    private AutomaticAssessment automaticAssessment;
+    @Lob
+    private String assessmentReason;
+    @Lob
+    private String assessmentEvidence;
     @Lob
     private String rulesJson;
     @Lob
@@ -63,6 +70,9 @@ public class ScenarioValidationEntity {
     public String getCreatedBy() { return createdBy; }
     public ValidationRunStatus getStatus() { return status; }
     public ValidationVerdict getVerdict() { return verdict; }
+    public AutomaticAssessment getAutomaticAssessment() { return automaticAssessment; }
+    public String getAssessmentReason() { return assessmentReason; }
+    public String getAssessmentEvidence() { return assessmentEvidence; }
     public String getRulesJson() { return rulesJson; }
     public String getExpectation() { return expectation; }
     public String getActualTraceJson() { return actualTraceJson; }
@@ -74,6 +84,9 @@ public class ScenarioValidationEntity {
     public Instant getCompletedAt() { return completedAt; }
     public void setStatus(ValidationRunStatus status) { this.status = status; }
     public void setVerdict(ValidationVerdict verdict) { this.verdict = verdict; }
+    public void setAutomaticAssessment(AutomaticAssessment automaticAssessment) { this.automaticAssessment = automaticAssessment; }
+    public void setAssessmentReason(String assessmentReason) { this.assessmentReason = assessmentReason; }
+    public void setAssessmentEvidence(String assessmentEvidence) { this.assessmentEvidence = assessmentEvidence; }
     public void setActualTraceJson(String actualTraceJson) { this.actualTraceJson = actualTraceJson; }
     public void setOutputSummary(String outputSummary) { this.outputSummary = outputSummary; }
     public void setError(String error) { this.error = error; }

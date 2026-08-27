@@ -25,6 +25,36 @@ ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台
 - 场景资产：场景保存为 SUGGESTED/APPROVED/DISMISSED 状态，可审阅、采纳并沉淀为回归资产。
 - 受控注入验证：已采纳场景可转换为 DELAY、ERROR、EMPTY_RESULT 规则并异步重跑原始 DAG，不修改业务代码。
 - 开发者结论：验证完成后可标记 VERIFIED、DEFECT_FOUND 或 INVALID，形成可复用质量资产。
+- 自动 Oracle：结合场景期望、严格注入规则、实际异常和节点轨迹生成 EXPECTED_BEHAVIOR、POTENTIAL_DEFECT 或 INCONCLUSIVE 判定，开发者保留最终裁决权。
+
+## 外部 Agent 链路接入
+
+ResearchFlow 不只分析自身链路。其他 Agent 系统可以通过 `POST /api/external-traces` 上报一次结构化执行链路，经过 Workspace 权限校验、节点依赖校验和 DAG 环检测后，直接使用 AI 场景推演。
+
+最小上报示例：
+
+```bash
+curl -X POST http://localhost:8080/api/external-traces \
+  -H 'X-User-Id: owner-1' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workspaceId":"{workspaceId}",
+    "name":"车载 Agent 请求链路",
+    "sourceSystem":"AIOS-Ark",
+    "nodes":[
+      {"nodeId":"intent","agent":"intent-agent","dependsOn":[],"status":"SUCCESS","input":"用户请求","output":"导航意图","durationMs":42},
+      {"nodeId":"map-api","agent":"map-service","dependsOn":["intent"],"status":"TIMEOUT","error":"upstream timeout","durationMs":3000,"externalBoundary":true,"asyncNode":true}
+    ]
+  }'
+```
+
+节点 `status` 支持 `SUCCESS`、`FAILED`、`TIMEOUT`、`CANCELLED`、`DEGRADED`。节点最多 200 个，输入输出摘要有长度限制，依赖不存在或循环依赖会被拒绝。
+
+- 链路列表：`GET /api/external-traces?workspaceId={workspaceId}`
+- 链路详情：`GET /api/external-traces/{traceId}`
+- 生成场景：`POST /api/external-traces/{traceId}/scenarios/generate`
+- 场景列表：`GET /api/external-traces/{traceId}/scenarios`
+- 删除链路：`DELETE /api/external-traces/{traceId}`
 - 推演示例：模型能从真实链路中发现"上游 64 秒空档""合并节点无相关性过滤""异步分支时序错位"等组合风险。
 
 ## 核心链路
@@ -202,14 +232,19 @@ curl -X POST http://localhost:8080/api/subscriptions \
 ## 目录结构
 
 ```text
-src/main/java/com/researchflow
+ResearchFlow
+├── frontend       # React + TypeScript 研究指挥台
+└── src/main/java/com/researchflow
 ├── agent          # 领域 Agent
 │   └── runtime    # System Agent、注册中心、上下文和 DAG 调度器
 ├── controller     # REST/SSE 接口
-├── frontend       # React + TypeScript 研究指挥台
 ├── llm            # Spring AI ChatClient 适配层
 ├── knowledge      # 私有知识库解析、管理和检索
 ├── export         # Markdown、Word、PDF 导出
+├── externaltrace  # 外部链路 Schema、校验和接入
+├── scenario       # AI 场景推演和资产管理
+├── injection      # 严格注入规则和运行时注入
+├── validation     # 异步验证、自动 Oracle 和人工裁决
 ├── workspace      # 团队空间、成员与 RBAC
 ├── collaboration  # 报告版本和评论
 ├── subscription   # 主题订阅和定时调度
@@ -227,4 +262,5 @@ src/main/java/com/researchflow
 - 将发布工具连接到真实文档平台，并保留审批审计。
 - 接入 JWT/OIDC/企业 SSO，替换 `X-User-Id` 占位认证。
 - 用分布式锁保护多实例订阅调度，并接入真实支付网关。
-- 增加前端 DAG、团队协作和账单看板。
+- 将 APPROVED 场景导出为 JUnit/JSON 回归测试资产。
+- 增加 OpenTelemetry/Java SDK 自动上报外部链路，减少手动 JSON 接入。

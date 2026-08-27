@@ -39,11 +39,11 @@ class ScenarioServiceTest {
         when(tasks.trace("task-1")).thenReturn(new TraceView("task-1", new SystemPlan("goal", List.of()),
                 List.of(
                         new TraceNodeView("externalSources", "source-search-agent", "COMPLETED",
-                                "plan=...", "List(size=3)", null, 1200, Instant.now()),
+                                "plan=...", "List(size=3)", null, 1200, Instant.now(), true, true),
                         new TraceNodeView("evidence", "evidence-agent", "COMPLETED",
-                                "sources=...", "evidence", null, 340, Instant.now()),
+                                "sources=...", "evidence", null, 340, Instant.now(), false, false),
                         new TraceNodeView("writer", "writer-agent", "COMPLETED",
-                                "comparison=...", "report", null, 5600, Instant.now()))));
+                                "comparison=...", "report", null, 5600, Instant.now(), false, false))));
         when(ai.entity(anyString(), anyString(), eq(ScenarioBatch.class))).thenReturn(Optional.empty());
         when(repository.save(any(ScenarioEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

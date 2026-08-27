@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import {
   Activity, Archive, Atom, BookOpen, ChevronDown, CreditCard, FlaskConical,
-  LogOut, Radio, Settings2, Users,
+  LogOut, Network, Radio, Settings2, Users,
 } from 'lucide-react'
 import { api } from './api'
 import { SessionProvider, useSession } from './session'
@@ -12,12 +12,14 @@ import ReportsPage from './pages/ReportsPage'
 import SubscriptionsPage from './pages/SubscriptionsPage'
 import TeamPage from './pages/TeamPage'
 import BillingPage from './pages/BillingPage'
+import ExternalTracesPage from './pages/ExternalTracesPage'
 import type { Workspace } from './types'
 
 const nav = [
   { to: '/research', label: '研究台', icon: FlaskConical },
   { to: '/knowledge', label: '知识库', icon: BookOpen },
   { to: '/reports', label: '报告库', icon: Archive },
+  { to: '/traces', label: '链路接入', icon: Network },
   { to: '/subscriptions', label: '情报订阅', icon: Radio },
   { to: '/team', label: '团队', icon: Users },
   { to: '/billing', label: '用量', icon: CreditCard },
@@ -69,6 +71,7 @@ function AppContent() {
             <Route path="/research" element={<ResearchPage />} />
             <Route path="/knowledge" element={<KnowledgePage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/traces" element={<ExternalTracesPage />} />
             <Route path="/subscriptions" element={<SubscriptionsPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/billing" element={<BillingPage />} />

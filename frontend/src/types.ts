@@ -103,6 +103,8 @@ export interface TraceNode {
   errorSummary?: string
   durationMs: number
   startedAt: string
+  externalBoundary?: boolean
+  asyncNode?: boolean
 }
 
 export interface SystemPlan {
@@ -128,6 +130,8 @@ export interface Scenario {
   expectation: string
   risk: string
   status: ScenarioStatus
+  sourceType?: string
+  injectionRules?: InjectionRule[]
   createdAt: string
 }
 
@@ -146,6 +150,9 @@ export interface ValidationRun {
   taskId: string
   status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
   verdict: ValidationVerdict
+  automaticAssessment?: 'EXPECTED_BEHAVIOR' | 'POTENTIAL_DEFECT' | 'INCONCLUSIVE'
+  assessmentReason?: string
+  assessmentEvidence?: string
   rules: InjectionRule[]
   expectation: string
   actualTraceJson?: string
@@ -155,4 +162,21 @@ export interface ValidationRun {
   createdAt: string
   startedAt?: string
   completedAt?: string
+}
+
+export interface ExternalTraceSummary {
+  id: string
+  workspaceId: string
+  name: string
+  sourceSystem: string
+  status: string
+  nodeCount: number
+  startedAt?: string
+  endedAt?: string
+  createdAt: string
+}
+
+export interface ExternalTraceView {
+  summary: ExternalTraceSummary
+  trace: TraceView
 }

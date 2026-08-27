@@ -2,6 +2,7 @@ package com.researchflow.injection;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.researchflow.agent.runtime.SystemPlan;
 import com.researchflow.persistence.ScenarioEntity;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,8 @@ public class InjectionRuleFactory {
     public List<InjectionRule> create(ScenarioEntity scenario, SystemPlan plan) {
         Set<String> validNodes = plan.nodes().stream().map(node -> node.id())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        List<InjectionRule> structured = structured(scenario.getRulesJson(), validNodes);
+        if (!structured.isEmpty()) return structured;
         List<String> targets = targets(scenario, validNodes);
         if (targets.isEmpty()) throw new IllegalArgumentException("场景没有匹配到可注入节点");
 
@@ -56,6 +59,16 @@ public class InjectionRuleFactory {
             add(rules, new InjectionRule(targets.get(0), InjectionType.DELAY, 1_000, "默认受控延迟"));
         }
         return List.copyOf(rules.values());
+    }
+
+    private List<InjectionRule> structured(String rulesJson, Set<String> validNodes) {
+        if (rulesJson == null || rulesJson.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(rulesJson, new TypeReference<List<InjectionRule>>() {}).stream()
+                    .filter(rule -> validNodes.contains(rule.nodeId())).limit(4).toList();
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 
     private List<String> targets(ScenarioEntity scenario, Set<String> validNodes) {

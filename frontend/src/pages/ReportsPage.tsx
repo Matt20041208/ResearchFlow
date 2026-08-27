@@ -142,6 +142,7 @@ export default function ReportsPage() {
               {(validations[scenario.id] ?? []).map((run) => <div className="validation-run" key={run.id}>
                 <div className="validation-head">{run.status === 'RUNNING' || run.status === 'QUEUED' ? <CircleDashed className="spin" /> : run.error ? <Bug /> : <CheckCircle2 />}<strong>{run.status}</strong><span>{run.durationMs ? `${run.durationMs}ms` : '等待执行'}</span><StatusChip status={run.verdict} /></div>
                 <div className="injection-rules">{run.rules.map((rule, index) => <code key={`${rule.nodeId}-${rule.type}-${index}`}>{rule.nodeId} · {rule.type}{rule.delayMs ? ` ${rule.delayMs}ms` : ''}</code>)}</div>
+                {run.automaticAssessment && <div className={`auto-assessment assessment-${run.automaticAssessment.toLowerCase()}`}><span>自动判定</span><strong>{run.automaticAssessment.replaceAll('_', ' ')}</strong><p>{run.assessmentReason}</p>{run.assessmentEvidence && <small>{run.assessmentEvidence}</small>}</div>}
                 {run.outputSummary && <p className="validation-output">{run.outputSummary}</p>}{run.error && <p className="validation-error">{run.error}</p>}
                 {canEdit && run.status === 'COMPLETED' && <div className="verdict-actions"><span>开发者结论</span><button onClick={() => void reviewValidation(scenario, run, 'VERIFIED')}>符合预期</button><button onClick={() => void reviewValidation(scenario, run, 'DEFECT_FOUND')}>发现缺陷</button><button onClick={() => void reviewValidation(scenario, run, 'INVALID')}>场景无效</button></div>}
               </div>)}

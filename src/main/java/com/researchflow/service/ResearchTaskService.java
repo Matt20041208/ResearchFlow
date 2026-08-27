@@ -145,7 +145,7 @@ public class ResearchTaskService {
         List<TraceNodeView> nodes = nodeExecutionRepository.findByTaskIdOrderByStartedAtAsc(taskId).stream()
                 .map(node -> new TraceNodeView(node.getNodeId(), node.getAgent(), node.getStatus(),
                         node.getInputSummary(), node.getOutputSummary(), node.getErrorSummary(),
-                        node.getDurationMs(), node.getStartedAt()))
+                        node.getDurationMs(), node.getStartedAt(), false, false))
                 .toList();
         return new TraceView(taskId, plan, nodes);
     }

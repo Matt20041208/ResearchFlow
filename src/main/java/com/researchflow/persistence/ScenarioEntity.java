@@ -20,10 +20,13 @@ public class ScenarioEntity {
     private Long id;
     private String taskId;
     private String workspaceId;
+    private String sourceType;
     private String title;
     private String nodeCombination;
     private String trigger;
     private String injectedData;
+    @Lob
+    private String rulesJson;
     @Lob
     private String expectation;
     private String risk;
@@ -35,12 +38,21 @@ public class ScenarioEntity {
 
     public ScenarioEntity(String taskId, String workspaceId, String title, String nodeCombination,
                           String trigger, String injectedData, String expectation, String risk) {
+        this(taskId, workspaceId, "RESEARCH_TASK", title, nodeCombination, trigger,
+                injectedData, expectation, risk, null);
+    }
+
+    public ScenarioEntity(String taskId, String workspaceId, String sourceType, String title,
+                          String nodeCombination, String trigger, String injectedData,
+                          String expectation, String risk, String rulesJson) {
         this.taskId = taskId;
         this.workspaceId = workspaceId;
+        this.sourceType = sourceType;
         this.title = title;
         this.nodeCombination = nodeCombination;
         this.trigger = trigger;
         this.injectedData = injectedData;
+        this.rulesJson = rulesJson;
         this.expectation = expectation;
         this.risk = risk;
         this.status = ScenarioStatus.SUGGESTED;
@@ -50,10 +62,12 @@ public class ScenarioEntity {
     public Long getId() { return id; }
     public String getTaskId() { return taskId; }
     public String getWorkspaceId() { return workspaceId; }
+    public String getSourceType() { return sourceType == null ? "RESEARCH_TASK" : sourceType; }
     public String getTitle() { return title; }
     public String getNodeCombination() { return nodeCombination; }
     public String getTrigger() { return trigger; }
     public String getInjectedData() { return injectedData; }
+    public String getRulesJson() { return rulesJson; }
     public String getExpectation() { return expectation; }
     public String getRisk() { return risk; }
     public ScenarioStatus getStatus() { return status; }

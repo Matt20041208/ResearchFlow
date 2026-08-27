@@ -7,6 +7,8 @@ import java.util.List;
 
 public record ValidationRunView(String id, Long scenarioId, String taskId,
                                 ValidationRunStatus status, ValidationVerdict verdict,
+                                AutomaticAssessment automaticAssessment, String assessmentReason,
+                                String assessmentEvidence,
                                 List<InjectionRule> rules, String expectation, String actualTraceJson,
                                 String outputSummary, String error, long durationMs,
                                 Instant createdAt, Instant startedAt, Instant completedAt) {

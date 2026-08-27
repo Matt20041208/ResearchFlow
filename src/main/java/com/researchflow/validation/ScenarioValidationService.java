@@ -40,13 +40,14 @@ public class ScenarioValidationService {
     private final ResearchTaskService taskService;
     private final MultiAgentOrchestrator orchestrator;
     private final InjectionRuleFactory ruleFactory;
+    private final ValidationAssessmentService assessmentService;
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
 
     public ScenarioValidationService(ScenarioRepository scenarioRepository,
                                      ScenarioValidationRepository validationRepository,
                                      ResearchTaskService taskService, MultiAgentOrchestrator orchestrator,
-                                     InjectionRuleFactory ruleFactory,
+                                     InjectionRuleFactory ruleFactory, ValidationAssessmentService assessmentService,
                                      ObjectMapper objectMapper,
                                      @Value("${research-flow.validation.executor-threads:2}") int threads) {
         this.scenarioRepository = scenarioRepository;
@@ -54,6 +55,7 @@ public class ScenarioValidationService {
         this.taskService = taskService;
         this.orchestrator = orchestrator;
         this.ruleFactory = ruleFactory;
+        this.assessmentService = assessmentService;
         this.objectMapper = objectMapper;
         this.executor = Executors.newFixedThreadPool(Math.max(1, threads));
     }
@@ -146,6 +148,11 @@ public class ScenarioValidationService {
             run.setActualTraceJson(json(nodeTrace));
             run.setDurationMs(System.currentTimeMillis() - started);
             run.setCompletedAt(Instant.now());
+            ValidationAssessment assessment = assessmentService.assess(run.getExpectation(), rules,
+                    run.getOutputSummary(), run.getError(), nodeTrace);
+            run.setAutomaticAssessment(assessment.result());
+            run.setAssessmentReason(assessment.reason());
+            run.setAssessmentEvidence(assessment.evidence());
             validationRepository.save(run);
         }
     }
@@ -183,7 +190,8 @@ public class ScenarioValidationService {
         try { rules = objectMapper.readValue(entity.getRulesJson(), new TypeReference<>() {}); }
         catch (Exception ignored) {}
         return new ValidationRunView(entity.getId(), entity.getScenarioId(), entity.getTaskId(),
-                entity.getStatus(), entity.getVerdict(), rules, entity.getExpectation(),
+                entity.getStatus(), entity.getVerdict(), entity.getAutomaticAssessment(),
+                entity.getAssessmentReason(), entity.getAssessmentEvidence(), rules, entity.getExpectation(),
                 entity.getActualTraceJson(), entity.getOutputSummary(), entity.getError(),
                 entity.getDurationMs(), entity.getCreatedAt(), entity.getStartedAt(), entity.getCompletedAt());
     }

@@ -32,4 +32,19 @@ class InjectionRuleFactoryTest {
         assertTrue(rules.stream().anyMatch(rule -> rule.nodeId().equals("sources")
                 && rule.type() == InjectionType.EMPTY_RESULT));
     }
+
+    @Test
+    void prefersPersistedStructuredRules() throws Exception {
+        String rulesJson = new ObjectMapper().writeValueAsString(List.of(
+                new InjectionRule("sources", InjectionType.ERROR, 0, "structured")));
+        ScenarioEntity scenario = new ScenarioEntity("task", "workspace", "EXTERNAL_TRACE", "场景",
+                "sources", "延迟", "{\"delayMs\":3000}", "expectation", "HIGH", rulesJson);
+        SystemPlan plan = new SystemPlan("goal", List.of(
+                new PlannedNode("sources", "source-merge-agent", List.of())));
+
+        List<InjectionRule> rules = factory.create(scenario, plan);
+
+        assertEquals(1, rules.size());
+        assertEquals(InjectionType.ERROR, rules.get(0).type());
+    }
 }
