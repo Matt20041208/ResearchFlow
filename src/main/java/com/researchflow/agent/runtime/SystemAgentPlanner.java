@@ -18,11 +18,14 @@ public class SystemAgentPlanner {
         var generated = aiClient.entity(
                 "你是 System Agent。请只输出 JSON，不要 Markdown。可用 agent: planner-agent, "
                         + "source-search-agent, private-knowledge-agent, source-merge-agent, evidence-agent, "
-                        + "comparison-agent, risk-agent, writer-agent, publisher-agent。"
+                        + "comparison-agent, risk-agent, critic-agent, fact-checker-agent, moderator-agent, "
+                        + "writer-agent, publisher-agent。"
                         + "输出格式: {\"goal\":\"...\",\"nodes\":[{\"id\":\"...\",\"agent\":\"...\","
-                        + "\"dependsOn\":[\"...\"]}]}。基础节点 ID 必须依次使用 plan、sources、evidence、comparison、writer。"
+                        + "\"dependsOn\":[\"...\"]}]}。基础节点 ID 必须使用 plan、externalSources、privateSources、"
+                        + "sources、evidence、comparison、critic、factCheck、moderation、writer。"
                         + "检索节点必须使用 externalSources、privateSources、sources，风险节点 ID 使用 risk，"
-                        + "发布节点 ID 使用 publication。",
+                        + "发布节点 ID 使用 publication。critic 与 factCheck 应并行，moderation 汇总二者，"
+                        + "writer 必须在 moderation 后执行。",
                 question, SystemPlan.class);
         if (generated.isPresent()) {
             SystemPlan plan = generated.get();
@@ -39,12 +42,15 @@ public class SystemAgentPlanner {
         nodes.add(new PlannedNode("sources", "source-merge-agent", List.of("externalSources", "privateSources")));
         nodes.add(new PlannedNode("evidence", "evidence-agent", List.of("sources")));
         nodes.add(new PlannedNode("comparison", "comparison-agent", List.of("plan", "evidence")));
+        List<String> moderationDependencies = new ArrayList<>(List.of("comparison", "critic", "factCheck"));
         if (containsRiskIntent(question)) {
             nodes.add(new PlannedNode("risk", "risk-agent", List.of("evidence")));
-            nodes.add(new PlannedNode("writer", "writer-agent", List.of("comparison", "risk")));
-        } else {
-            nodes.add(new PlannedNode("writer", "writer-agent", List.of("comparison")));
+            moderationDependencies.add("risk");
         }
+        nodes.add(new PlannedNode("critic", "critic-agent", List.of("comparison", "evidence")));
+        nodes.add(new PlannedNode("factCheck", "fact-checker-agent", List.of("evidence", "sources")));
+        nodes.add(new PlannedNode("moderation", "moderator-agent", moderationDependencies));
+        nodes.add(new PlannedNode("writer", "writer-agent", List.of("moderation", "sources")));
         if (containsPublishIntent(question)) {
             nodes.add(new PlannedNode("publication", "publisher-agent", List.of("writer")));
         }
@@ -60,16 +66,56 @@ public class SystemAgentPlanner {
                 "sources", "source-merge-agent",
                 "evidence", "evidence-agent",
                 "comparison", "comparison-agent",
+                "critic", "critic-agent",
+                "factCheck", "fact-checker-agent",
+                "moderation", "moderator-agent",
                 "writer", "writer-agent");
-        java.util.Map<String, String> actual = plan.nodes().stream()
-                .collect(java.util.stream.Collectors.toMap(PlannedNode::id, PlannedNode::agent, (left, right) -> left));
+        java.util.Map<String, PlannedNode> actual = new java.util.HashMap<>();
+        for (PlannedNode node : plan.nodes()) {
+            if (node.id() == null || node.agent() == null || node.dependsOn() == null) return false;
+            if (actual.put(node.id(), node) != null) return false;
+        }
+        java.util.Set<String> allowed = new java.util.HashSet<>(contracts.keySet());
+        allowed.add("risk");
+        allowed.add("publication");
+        if (!allowed.containsAll(actual.keySet())) return false;
         boolean validContracts = contracts.entrySet().stream()
-                .allMatch(entry -> entry.getValue().equals(actual.get(entry.getKey())));
-        boolean hasRisk = "risk-agent".equals(actual.get("risk"));
-        boolean hasPublication = "publisher-agent".equals(actual.get("publication"));
+                .allMatch(entry -> actual.containsKey(entry.getKey())
+                        && entry.getValue().equals(actual.get(entry.getKey()).agent()));
+        boolean hasRisk = actual.containsKey("risk") && "risk-agent".equals(actual.get("risk").agent());
+        boolean hasPublication = actual.containsKey("publication")
+                && "publisher-agent".equals(actual.get("publication").agent());
         return validContracts
                 && hasRisk == containsRiskIntent(question)
-                && hasPublication == containsPublishIntent(question);
+                && hasPublication == containsPublishIntent(question)
+                && dependenciesMatch(actual, hasRisk, hasPublication);
+    }
+
+    private boolean dependenciesMatch(java.util.Map<String, PlannedNode> nodes,
+                                      boolean hasRisk, boolean hasPublication) {
+        if (!dependsOn(nodes, "plan")) return false;
+        if (!dependsOn(nodes, "externalSources", "plan")) return false;
+        if (!dependsOn(nodes, "privateSources", "plan")) return false;
+        if (!dependsOn(nodes, "sources", "externalSources", "privateSources")) return false;
+        if (!dependsOn(nodes, "evidence", "sources")) return false;
+        if (!dependsOn(nodes, "comparison", "plan", "evidence")) return false;
+        if (!dependsOn(nodes, "critic", "comparison", "evidence")) return false;
+        if (!dependsOn(nodes, "factCheck", "evidence", "sources")) return false;
+        if (hasRisk && !dependsOn(nodes, "risk", "evidence")) return false;
+        String[] moderation = hasRisk
+                ? new String[]{"comparison", "critic", "factCheck", "risk"}
+                : new String[]{"comparison", "critic", "factCheck"};
+        if (!dependsOn(nodes, "moderation", moderation)) return false;
+        if (!dependsOn(nodes, "writer", "moderation", "sources")) return false;
+        return !hasPublication || dependsOn(nodes, "publication", "writer");
+    }
+
+    private boolean dependsOn(java.util.Map<String, PlannedNode> nodes, String nodeId,
+                              String... expectedDependencies) {
+        PlannedNode node = nodes.get(nodeId);
+        return node != null && node.dependsOn().size() == expectedDependencies.length
+                && java.util.Set.copyOf(node.dependsOn())
+                .equals(java.util.Set.of(expectedDependencies));
     }
 
     private boolean containsRiskIntent(String question) {

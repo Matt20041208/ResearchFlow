@@ -12,4 +12,8 @@ public interface TraceCollector {
     void nodeCompleted(PlannedNode node, String agentName, String outputSummary, long durationMs);
 
     void nodeFailed(PlannedNode node, String agentName, String error, long durationMs);
+
+    default void nodeStep(PlannedNode node, String agentName, int iteration, String action,
+                          String observation, String decision, String rationale, long durationMs) {
+    }
 }

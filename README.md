@@ -26,6 +26,8 @@ ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台
 - 受控注入验证：已采纳场景可转换为 DELAY、ERROR、EMPTY_RESULT 规则并异步重跑原始 DAG，不修改业务代码。
 - 开发者结论：验证完成后可标记 VERIFIED、DEFECT_FOUND 或 INVALID，形成可复用质量资产。
 - 自动 Oracle：结合场景期望、严格注入规则、实际异常和节点轨迹生成 EXPECTED_BEHAVIOR、POTENTIAL_DEFECT 或 INCONCLUSIVE 判定，开发者保留最终裁决权。
+- ReAct 节点循环：每个 DAG 节点执行后形成 Action、Observation、Decision；声明模型工具的生成式 Agent 由 Spring AI 监督器决定完成、带修正指令重试或失败，并受最大轮次与时间预算约束。
+- 多角色讨论收敛：Comparison 完成后并行派遣 Critic 与 Fact Checker，再由 Moderator 按证据质量形成共识和写作约束，最后交给 Writer。
 
 ## 外部 Agent 链路接入
 
@@ -65,6 +67,9 @@ curl -X POST http://localhost:8080/api/external-traces \
   -> Agent Registry 按名称和能力路由
   -> Scheduler 并行执行同层 Sub-Agent
   -> Tool Registry 校验工具权限
+  -> 节点内 ReAct 根据观察结果收敛或有限重试
+  -> Critic + Fact Checker 并行审查
+  -> Moderator 收敛分歧与证据边界
   -> Writer Agent 汇总 Markdown 报告
 ```
 
@@ -218,8 +223,10 @@ curl -X POST http://localhost:8080/api/subscriptions \
 
 - Spring Boot 3.5 + Spring AI 1.0.3 提供模型自动配置、`ChatClient` 和结构化实体映射。
 - System Agent 通过 `ChatClient.call().entity(SystemPlan.class)` 生成结构化 DAG，输出非法或未配置模型时使用确定性规划器。
+- 每个节点由 ReAct 执行器包装；声明 `llm-completion` 的生成式 Agent 使用 Spring AI 结构化输出生成 COMPLETE、RETRY、FAIL 决策，其他节点确定性单轮收敛，避免私有观察被隐式发送给模型。
 - Agent Registry 保存每个 Sub-Agent 的能力与所需工具，编排器不再硬编码调用链。
 - DAG Scheduler 自动识别依赖已满足的节点，并行执行同一层节点。
+- Critic Agent 与 Fact Checker Agent 并行检查逻辑、来源摘录与证据映射，Moderator Agent 在 Writer 前形成可审计共识；Writer 对模型输出的引用编号做边界校验。
 - External Search Agent 和 Private Knowledge Agent 并行检索，Source Merge Agent 去重后统一进入证据链路。
 - Search Agent 获取外部论文来源。
 - Evidence、Comparison、Risk、Writer Agent 分别负责证据提取、比较、风险分析和报告汇总。

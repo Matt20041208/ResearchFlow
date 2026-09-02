@@ -7,4 +7,12 @@ public interface SubAgent {
     Set<String> capabilities();
     Set<String> requiredTools();
     Object execute(AgentContext context);
+
+    default Object execute(AgentContext context, String instruction) {
+        return execute(context);
+    }
+
+    default boolean supportsRetry() {
+        return false;
+    }
 }

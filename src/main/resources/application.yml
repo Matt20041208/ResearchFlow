@@ -36,6 +36,9 @@ server:
 research-flow:
   executor-threads: 8
   max-attempts: 3
+  react:
+    max-iterations: 3
+    max-elapsed-ms: 60000
   subscription:
     scan-interval-ms: 60000
   validation:

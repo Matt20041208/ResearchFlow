@@ -116,6 +116,19 @@ export interface TraceView {
   taskId: string
   plan?: SystemPlan
   nodes: TraceNode[]
+  steps?: ReActStep[]
+}
+
+export interface ReActStep {
+  nodeId: string
+  agent: string
+  iteration: number
+  action: string
+  observation: string
+  decision: 'COMPLETE' | 'RETRY' | 'FAIL'
+  rationale: string
+  durationMs: number
+  occurredAt: string
 }
 
 export type ScenarioStatus = 'SUGGESTED' | 'APPROVED' | 'DISMISSED'

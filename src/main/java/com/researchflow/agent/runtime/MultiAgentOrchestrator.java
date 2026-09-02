@@ -15,6 +15,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import jakarta.annotation.PreDestroy;
@@ -25,15 +27,17 @@ public class MultiAgentOrchestrator {
     private final AgentRegistry registry;
     private final ToolRegistry toolRegistry;
     private final FaultInjectionRuntime faultInjection;
+    private final ReActNodeExecutor reactExecutor;
     private final ExecutorService executor;
 
     public MultiAgentOrchestrator(SystemAgentPlanner planner, AgentRegistry registry, ToolRegistry toolRegistry,
-                                  FaultInjectionRuntime faultInjection,
+                                  FaultInjectionRuntime faultInjection, ReActNodeExecutor reactExecutor,
                                   @Value("${research-flow.executor-threads:8}") int threads) {
         this.planner = planner;
         this.registry = registry;
         this.toolRegistry = toolRegistry;
         this.faultInjection = faultInjection;
+        this.reactExecutor = reactExecutor;
         this.executor = Executors.newFixedThreadPool(Math.max(2, threads));
     }
 
@@ -41,8 +45,12 @@ public class MultiAgentOrchestrator {
                                        Consumer<AgentExecutionEvent> eventSink,
                                        BooleanSupplier cancellationRequested, Set<String> approvedTools,
                                        TraceCollector trace) {
-        return executePlan(question, workspaceId, planner.plan(question), eventSink,
+        return executePlan(question, workspaceId, plan(question), eventSink,
                 cancellationRequested, approvedTools, trace, List.of());
+    }
+
+    public SystemPlan plan(String question) {
+        return planner.plan(question);
     }
 
     public OrchestrationResult executePlan(String question, String workspaceId, SystemPlan plan,
@@ -67,8 +75,11 @@ public class MultiAgentOrchestrator {
                     .toList();
             if (ready.isEmpty()) throw new IllegalStateException("DAG 无可执行节点，存在循环依赖");
 
+            AtomicBoolean layerAborted = new AtomicBoolean(false);
+            AtomicReference<RuntimeException> firstFailure = new AtomicReference<>();
             List<CompletableFuture<Void>> futures = ready.stream().map(node -> CompletableFuture.runAsync(() -> {
-                if (cancellationRequested.getAsBoolean()) throw new TaskCancelledException();
+                BooleanSupplier nodeCancellation = () -> cancellationRequested.getAsBoolean() || layerAborted.get();
+                if (nodeCancellation.getAsBoolean()) throw new TaskCancelledException();
                 SubAgent agent = registry.get(node.agent());
                 toolRegistry.authorize(agent, approvedTools);
                 long startedAt = System.currentTimeMillis();
@@ -80,26 +91,30 @@ public class MultiAgentOrchestrator {
                                 "正在应用受控故障注入: " + node.id()));
                     }
                     faultInjection.before(node.id(), injectionRules);
-                    Object result = agent.execute(context);
+                    Object result = reactExecutor.execute(node, agent, context, eventSink,
+                            nodeCancellation, collector);
                     result = faultInjection.after(node.id(), result, injectionRules);
+                    if (nodeCancellation.getAsBoolean()) throw new TaskCancelledException();
                     validateOutput(node, result);
                     context.put(node.id(), result);
                     collector.nodeCompleted(node, agent.name(), outputSummary(result),
                             System.currentTimeMillis() - startedAt);
                     eventSink.accept(new AgentExecutionEvent(agent.name(), "COMPLETED", "执行完成"));
                 } catch (RuntimeException exception) {
+                    firstFailure.compareAndSet(null, exception);
+                    layerAborted.set(true);
                     collector.nodeFailed(node, agent.name(), exception.getMessage(),
                             System.currentTimeMillis() - startedAt);
                     throw exception;
                 }
             }, executor)).toList();
-            for (CompletableFuture<Void> future : futures) {
-                try {
-                    future.join();
-                } catch (CompletionException exception) {
-                    if (exception.getCause() instanceof RuntimeException runtimeException) throw runtimeException;
-                    throw exception;
-                }
+            try {
+                CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+            } catch (CompletionException exception) {
+                RuntimeException failure = firstFailure.get();
+                if (failure != null) throw failure;
+                if (exception.getCause() instanceof RuntimeException runtimeException) throw runtimeException;
+                throw exception;
             }
             ready.forEach(node -> completed.add(node.id()));
         }

@@ -18,6 +18,8 @@ import com.researchflow.persistence.TaskCitationEntity;
 import com.researchflow.persistence.TaskCitationRepository;
 import com.researchflow.persistence.TaskNodeExecutionEntity;
 import com.researchflow.persistence.TaskNodeExecutionRepository;
+import com.researchflow.persistence.TaskNodeStepEntity;
+import com.researchflow.persistence.TaskNodeStepRepository;
 import com.researchflow.persistence.TaskRepository;
 import com.researchflow.billing.UsageService;
 import com.researchflow.billing.UsageType;
@@ -42,6 +44,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class ResearchTaskService {
@@ -53,6 +56,7 @@ public class ResearchTaskService {
     private final UsageService usageService;
     private final CollaborationService collaborationService;
     private final TaskNodeExecutionRepository nodeExecutionRepository;
+    private final TaskNodeStepRepository nodeStepRepository;
     private final ObjectMapper objectMapper;
     private final ExecutorService executor;
     private final ConcurrentHashMap<String, TaskState> tasks = new ConcurrentHashMap<>();
@@ -62,6 +66,7 @@ public class ResearchTaskService {
     public ResearchTaskService(MultiAgentOrchestrator orchestrator, TaskRepository taskRepository,
                                TaskEventRepository eventRepository, TaskCitationRepository citationRepository,
                                TaskNodeExecutionRepository nodeExecutionRepository,
+                               TaskNodeStepRepository nodeStepRepository,
                                UsageService usageService, CollaborationService collaborationService,
                                ObjectMapper objectMapper,
                                @Value("${research-flow.executor-threads:8}") int executorThreads,
@@ -72,6 +77,7 @@ public class ResearchTaskService {
         this.eventRepository = eventRepository;
         this.citationRepository = citationRepository;
         this.nodeExecutionRepository = nodeExecutionRepository;
+        this.nodeStepRepository = nodeStepRepository;
         this.usageService = usageService;
         this.collaborationService = collaborationService;
         this.objectMapper = objectMapper;
@@ -147,7 +153,13 @@ public class ResearchTaskService {
                         node.getInputSummary(), node.getOutputSummary(), node.getErrorSummary(),
                         node.getDurationMs(), node.getStartedAt(), false, false))
                 .toList();
-        return new TraceView(taskId, plan, nodes);
+        List<com.researchflow.model.ReActStepView> steps = nodeStepRepository
+                .findByTaskIdOrderByOccurredAtAsc(taskId).stream()
+                .map(step -> new com.researchflow.model.ReActStepView(step.getNodeId(), step.getAgent(),
+                        step.getIteration(), step.getAction(), step.getObservation(), step.getDecision(),
+                        step.getRationale(), step.getDurationMs(), step.getOccurredAt()))
+                .toList();
+        return new TraceView(taskId, plan, nodes, steps);
     }
 
     @Transactional(readOnly = true)
@@ -179,7 +191,11 @@ public class ResearchTaskService {
         state.entity.setUpdatedAt(Instant.now());
         taskRepository.save(state.entity);
         Future<?> future = runningTasks.get(taskId);
-        if (future != null) future.cancel(true);
+        state.invalidateRun();
+        if (future != null) {
+            future.cancel(true);
+            runningTasks.remove(taskId, future);
+        }
         publish(state, "system", "CANCELLED", "研究任务已取消");
     }
 
@@ -226,7 +242,8 @@ public class ResearchTaskService {
     }
 
     private void submit(TaskState state) {
-        Future<?> future = executor.submit(() -> run(state));
+        long generation = state.beginRun();
+        Future<?> future = executor.submit(() -> run(state, generation));
         runningTasks.put(state.entity.getId(), future);
     }
 
@@ -243,9 +260,9 @@ public class ResearchTaskService {
         return previous == null ? restored : previous;
     }
 
-    private void run(TaskState state) {
+    private void run(TaskState state, long generation) {
         try {
-            if (!markRunning(state)) return;
+            if (!markRunning(state, generation)) return;
             ConcurrentHashMap<String, String> nodeInputs = new ConcurrentHashMap<>();
             TraceCollector collector = new TraceCollector() {
                 public void nodeStarted(com.researchflow.agent.runtime.PlannedNode node, String agentName, String inputSummary) {
@@ -263,11 +280,19 @@ public class ResearchTaskService {
                             agentName, "FAILED", nodeInputs.get(node.id()), null,
                             error, durationMs, Instant.now()));
                 }
+                public void nodeStep(com.researchflow.agent.runtime.PlannedNode node, String agentName,
+                                     int iteration, String action, String observation, String decision,
+                                     String rationale, long durationMs) {
+                    nodeStepRepository.save(new TaskNodeStepEntity(state.entity.getId(), node.id(), agentName,
+                            iteration, action, observation, decision, rationale, durationMs, Instant.now()));
+                }
             };
-            var result = orchestrator.execute(state.entity.getQuestion(), state.entity.getWorkspaceId(),
+            SystemPlan executionPlan = executionPlan(state);
+            var result = orchestrator.executePlan(state.entity.getQuestion(), state.entity.getWorkspaceId(), executionPlan,
                     event -> publish(state, event.agent(), event.status(), event.message()),
-                    () -> state.entity.getStatus() == TaskStatus.CANCELLED,
-                    state.entity.getApprovedTools(), collector);
+                    () -> state.cancelled(generation),
+                    state.entity.getApprovedTools(), collector, List.of());
+            if (state.cancelled(generation)) return;
             state.entity.setReport(result.report());
             state.entity.setPlanJson(objectMapper.writeValueAsString(result.plan()));
             collaborationService.saveVersion(state.entity.getId(), result.report(), state.entity.getCreatedBy());
@@ -280,9 +305,12 @@ public class ResearchTaskService {
                 citationRepository.save(new TaskCitationEntity(state.entity.getId(), index + 1, source.id(),
                         source.sourceType(), source.title(), source.url(), source.excerpt(), source.confidence()));
             }
-            state.entity.setStatus(TaskStatus.COMPLETED);
-            state.entity.setUpdatedAt(Instant.now());
-            taskRepository.save(state.entity);
+            synchronized (state) {
+                if (state.cancelled(generation)) return;
+                state.entity.setStatus(TaskStatus.COMPLETED);
+                state.entity.setUpdatedAt(Instant.now());
+                taskRepository.save(state.entity);
+            }
             publish(state, "system", "COMPLETED", "研究报告已生成");
         } catch (MultiAgentOrchestrator.TaskCancelledException exception) {
             return;
@@ -301,13 +329,13 @@ public class ResearchTaskService {
             taskRepository.save(state.entity);
             publish(state, "system", "FAILED", "任务失败: " + state.entity.getError());
         } finally {
-            runningTasks.remove(state.entity.getId());
+            if (state.current(generation)) runningTasks.remove(state.entity.getId());
         }
     }
 
-    private boolean markRunning(TaskState state) {
+    private boolean markRunning(TaskState state, long generation) {
         synchronized (state) {
-            if (state.entity.getStatus() == TaskStatus.CANCELLED) return false;
+            if (state.cancelled(generation)) return false;
             state.entity.setStatus(TaskStatus.RUNNING);
             state.entity.setAttempts(state.entity.getAttempts() + 1);
             state.entity.setUpdatedAt(Instant.now());
@@ -315,6 +343,26 @@ public class ResearchTaskService {
         }
         publish(state, "system", "RUNNING", "System Agent 开始拆解研究任务");
         return true;
+    }
+
+    private SystemPlan executionPlan(TaskState state) {
+        String stored = state.entity.getPlanJson();
+        if (stored != null && !stored.isBlank()) {
+            try {
+                return objectMapper.readValue(stored, SystemPlan.class);
+            } catch (Exception ignored) {
+                // Regenerate a valid plan when persisted JSON cannot be restored.
+            }
+        }
+        SystemPlan plan = orchestrator.plan(state.entity.getQuestion());
+        try {
+            state.entity.setPlanJson(objectMapper.writeValueAsString(plan));
+            state.entity.setUpdatedAt(Instant.now());
+            taskRepository.save(state.entity);
+            return plan;
+        } catch (Exception exception) {
+            throw new IllegalStateException("研究计划序列化失败", exception);
+        }
     }
 
     private void publish(TaskState state, String agent, String status, String message) {
@@ -350,8 +398,21 @@ public class ResearchTaskService {
     private static final class TaskState {
         private final TaskEntity entity;
         private final CopyOnWriteArrayList<AgentEvent> events = new CopyOnWriteArrayList<>();
+        private final AtomicLong generation = new AtomicLong();
 
         private TaskState(TaskEntity entity) { this.entity = entity; }
+
+        private long beginRun() { return generation.incrementAndGet(); }
+
+        private void invalidateRun() { generation.incrementAndGet(); }
+
+        private boolean current(long expectedGeneration) { return generation.get() == expectedGeneration; }
+
+        private boolean cancelled(long expectedGeneration) {
+            synchronized (this) {
+                return !current(expectedGeneration) || entity.getStatus() == TaskStatus.CANCELLED;
+            }
+        }
 
         private TaskSnapshot snapshot() {
             return new TaskSnapshot(entity.getId(), entity.getQuestion(), entity.getStatus(), entity.getCreatedAt(),

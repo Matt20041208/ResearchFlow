@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -24,5 +25,19 @@ class WriterAgentTest {
         assertTrue(report.contains("# 研究报告"));
         assertTrue(report.contains("比较结果"));
         assertTrue(report.contains("https://example.org"));
+    }
+
+    @Test
+    void rejectsModelOutputWithAnOutOfRangeCitation() {
+        SpringAiClient client = mock(SpringAiClient.class);
+        when(client.complete(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(java.util.Optional.of("模型结论 [2]"));
+        WriterAgent agent = new WriterAgent(client);
+
+        String report = agent.execute(new WriterAgent.Input(
+                "研究问题", "可靠的降级内容", List.of(new SourceDocument("来源", "https://example.org", "摘要"))));
+
+        assertTrue(report.contains("可靠的降级内容"));
+        assertFalse(report.contains("模型结论 [2]"));
     }
 }
