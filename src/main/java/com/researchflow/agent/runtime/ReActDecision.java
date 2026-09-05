@@ -1,6 +1,11 @@
 package com.researchflow.agent.runtime;
 
-public record ReActDecision(String decision, String reason, String nextInstruction) {
+public record ReActDecision(String decision, String reason, String nextInstruction,
+                            String tool, java.util.Map<String, Object> arguments) {
+    public ReActDecision(String decision, String reason, String nextInstruction) {
+        this(decision, reason, nextInstruction, null, java.util.Map.of());
+    }
+
     public Outcome outcome() {
         if (decision == null) return Outcome.FAIL;
         try {
@@ -19,6 +24,6 @@ public record ReActDecision(String decision, String reason, String nextInstructi
     }
 
     public enum Outcome {
-        COMPLETE, RETRY, FAIL
+        COMPLETE, RETRY, TOOL, FAIL
     }
 }

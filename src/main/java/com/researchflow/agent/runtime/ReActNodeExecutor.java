@@ -2,7 +2,9 @@ package com.researchflow.agent.runtime;
 
 import com.researchflow.injection.InjectedFaultException;
 import com.researchflow.llm.SpringAiClient;
+import com.researchflow.tool.ToolDescriptor;
 import com.researchflow.tool.ToolRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -14,18 +16,25 @@ import java.util.function.Consumer;
 public class ReActNodeExecutor {
     private static final String DECISION_PROMPT = """
             你是多 Agent 运行时的节点监督器。请根据节点目标和最新观察结果决定下一步。
-            只输出 JSON：{"decision":"COMPLETE|RETRY|FAIL","reason":"简短可审计理由","nextInstruction":"重试指令"}。
+            只输出 JSON：{"decision":"COMPLETE|RETRY|TOOL|FAIL","reason":"简短可审计理由","nextInstruction":"重试指令","tool":"mcp:工具名","arguments":{}}。
             不要输出思维过程。结果已满足节点职责时选择 COMPLETE；可通过修正指令改善时选择 RETRY；
-            结果无法恢复或违背目标时选择 FAIL。不要因为措辞风格重复执行。""";
+            结果无法恢复或违背目标时选择 FAIL；需要外部资料时选择 TOOL，并只能选择提供的 MCP 工具。不要因为措辞风格重复执行。""";
 
     private final SpringAiClient aiClient;
+    private final ToolRegistry toolRegistry;
     private final int maxIterations;
     private final long maxElapsedMs;
 
-    public ReActNodeExecutor(SpringAiClient aiClient,
+    public ReActNodeExecutor(SpringAiClient aiClient, int maxIterations, long maxElapsedMs) {
+        this(aiClient, new ToolRegistry(), maxIterations, maxElapsedMs);
+    }
+
+    @Autowired
+    public ReActNodeExecutor(SpringAiClient aiClient, ToolRegistry toolRegistry,
                              @Value("${research-flow.react.max-iterations:3}") int maxIterations,
                              @Value("${research-flow.react.max-elapsed-ms:60000}") long maxElapsedMs) {
         this.aiClient = aiClient;
+        this.toolRegistry = toolRegistry;
         this.maxIterations = Math.max(1, maxIterations);
         this.maxElapsedMs = Math.max(1000, maxElapsedMs);
     }
@@ -67,6 +76,18 @@ public class ReActNodeExecutor {
 
                 if (decision.outcome() == ReActDecision.Outcome.FAIL) {
                     throw new SupervisorRejectedException("节点监督器拒绝结果: " + decision.normalizedReason());
+                }
+                if (decision.outcome() == ReActDecision.Outcome.TOOL) {
+                    if (decision.tool() == null || decision.tool().isBlank()) {
+                        throw new IllegalStateException("ReAct TOOL 决策缺少工具名称");
+                    }
+                    toolRegistry.authorizeTool(decision.tool(), java.util.Set.of());
+                    Object toolObservation = toolRegistry.invoke(decision.tool(), decision.arguments());
+                    instruction = "基于 MCP 工具 " + decision.tool() + " 的结果继续完成节点："
+                            + summarize(toolObservation, 900);
+                    eventSink.accept(new AgentExecutionEvent(agent.name(), "TOOL_OBSERVATION",
+                            "已获得 MCP 工具观察结果: " + summarize(toolObservation, 180)));
+                    continue;
                 }
                 if (decision.outcome() == ReActDecision.Outcome.RETRY && agent.supportsRetry()
                         && iteration < maxIterations) {
@@ -117,6 +138,8 @@ public class ReActNodeExecutor {
                 + "\nAgent: " + agent.name()
                 + "\n能力: " + agent.capabilities()
                 + "\n可用工具: " + agent.requiredTools()
+                + "\n可用 MCP 工具: " + toolRegistry.all().stream()
+                .map(ToolDescriptor::name).filter(name -> name.startsWith("mcp:")).toList()
                 + "\n轮次: " + iteration + "/" + maxIterations
                 + "\n本轮指令: " + instruction
                 + "\n观察结果: " + (observation == null ? error : observation);

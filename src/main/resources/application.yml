@@ -31,11 +31,25 @@ spring:
         options:
           model: ${OPENAI_MODEL:gpt-4o-mini}
           temperature: 0.2
+    mcp:
+      client:
+        enabled: ${RESEARCH_FLOW_MCP_ENABLED:false}
+        type: SYNC
+        request-timeout: 20s
+        toolcallback:
+          enabled: false
+        sse:
+          connections:
+            research-tools:
+              url: ${RESEARCH_FLOW_MCP_URL:http://localhost:9000}
 server:
   port: 8080
 research-flow:
   executor-threads: 8
   max-attempts: 3
+  mcp:
+    server:
+      enabled: ${RESEARCH_FLOW_MCP_SERVER_ENABLED:false}
   react:
     max-iterations: 3
     max-elapsed-ms: 60000

@@ -28,6 +28,7 @@ ResearchFlow 是一个面向科研和企业知识工作的多 Agent 编排平台
 - 自动 Oracle：结合场景期望、严格注入规则、实际异常和节点轨迹生成 EXPECTED_BEHAVIOR、POTENTIAL_DEFECT 或 INCONCLUSIVE 判定，开发者保留最终裁决权。
 - ReAct 节点循环：每个 DAG 节点执行后形成 Action、Observation、Decision；声明模型工具的生成式 Agent 由 Spring AI 监督器决定完成、带修正指令重试或失败，并受最大轮次与时间预算约束。
 - 多角色讨论收敛：Comparison 完成后并行派遣 Critic 与 Fact Checker，再由 Moderator 按证据质量形成共识和写作约束，最后交给 Writer。
+- MCP Client 工具扩展：可选连接外部 MCP Server，动态发现 MCP Tools，并通过 ReAct 的 TOOL 决策把工具结果作为下一轮 Observation；MCP 默认关闭，工具调用仍经过 Tool Registry 授权。
 
 ## 外部 Agent 链路接入
 
@@ -68,6 +69,7 @@ curl -X POST http://localhost:8080/api/external-traces \
   -> Scheduler 并行执行同层 Sub-Agent
   -> Tool Registry 校验工具权限
   -> 节点内 ReAct 根据观察结果收敛或有限重试
+  -> ReAct 按需调用 MCP Tool 并消费 Observation
   -> Critic + Fact Checker 并行审查
   -> Moderator 收敛分歧与证据边界
   -> Writer Agent 汇总 Markdown 报告
@@ -106,6 +108,21 @@ cp .env.example .env
 ```
 
 默认 DeepSeek 配置使用 `https://api.deepseek.com` 和 `deepseek-v4-pro`。可通过 `/models` 接口确认当前账号可用的准确模型 ID。`dev.sh` 会自动加载根目录 `.env`，真实密钥不会提交到 Git。
+
+### MCP Client 工具扩展
+
+ResearchFlow 可选作为 MCP Client 连接远程 MCP Server，动态发现外部工具。默认关闭；启用远程 SSE MCP Server：
+
+```bash
+RESEARCH_FLOW_MCP_ENABLED=true
+RESEARCH_FLOW_MCP_URL=http://localhost:9000
+```
+
+也可以将配置写入根目录 `.env` 后使用 `./dev.sh`。发现的工具会以 `mcp:<tool-name>` 形式进入 ReAct Supervisor 的可用工具列表；模型返回 `TOOL` 决策后，Tool Registry 校验工具存在并调用 MCP Server，返回结果作为下一轮 Observation。当前 MCP 工具默认为 `EXTERNAL_CALL`，真实写操作仍应在生产环境增加审批、参数校验、超时、审计和幂等控制。
+
+ResearchFlow 也可以作为 MCP Server 对外提供科研工具。设置 `RESEARCH_FLOW_MCP_SERVER_ENABLED=true` 后，服务会通过 `/mcp/sse` 暴露 `search_papers`、`search_workspace_knowledge`、`get_research_citations` 和 `get_research_trace`；Workspace 查询工具要求调用方传入 `workspaceId` 和 `userId`，服务端会复用 Workspace Viewer 权限校验。当前这是 SSE 传输的只读工具示例，生产环境仍应使用 JWT/OIDC 身份，不应信任调用方直接传入的 userId。
+
+详细参数结构、调用示例和错误处理见 [`MCP_API.md`](MCP_API.md)。
 
 ## API
 
